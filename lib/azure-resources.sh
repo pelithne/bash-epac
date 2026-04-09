@@ -594,6 +594,29 @@ epac_build_scope_table() {
     echo "$scope_table"
 }
 
+# ─── Categorize role assignment scopes by type ───────────────────────────────
+# Replaces Set-UniqueRoleAssignmentScopes.ps1
+# Adds a scope ID to the appropriate scope-type bucket.
+# Input/output: JSON { subscriptions:{}, managementGroups:{}, resourceGroups:{}, resources:{}, unknown:{} }
+
+epac_set_unique_role_assignment_scopes() {
+    local scope_id="$1"
+    local scopes_json="$2"
+
+    local IFS='/'
+    read -ra segments <<< "$scope_id"
+    local count=${#segments[@]}
+
+    local scope_type
+    case $count in
+        3) scope_type="subscriptions" ;;
+        5) scope_type="${segments[3]}" ;;
+        *) if [[ $count -gt 5 ]]; then scope_type="resources"; else scope_type="unknown"; fi ;;
+    esac
+
+    echo "$scopes_json" | jq --arg t "$scope_type" --arg id "$scope_id" '.[$t][$id] = $t'
+}
+
 ###############################################################################
 # Section 4: Policy Resource Collection
 ###############################################################################

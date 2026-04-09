@@ -542,6 +542,19 @@ st_prop="$(_epac_build_scope_table_subscription "sub-excl" "Excluded Sub" "$rg_p
 assert_json_eq "child RG inherits excluded" "$st_prop" '.["/subscriptions/sub-excl/resourceGroups/rg-child"].isExcluded' "true"
 
 # ═══════════════════════════════════════════════════════════════════════════════
+echo "=== epac_set_unique_role_assignment_scopes ==="
+
+role_scopes='{"subscriptions":{},"managementGroups":{},"resourceGroups":{},"resources":{},"unknown":{}}'
+role_scopes="$(epac_set_unique_role_assignment_scopes "/subscriptions/sub1" "$role_scopes")"
+assert_json_eq "subscription scope classified" "$role_scopes" '.subscriptions["/subscriptions/sub1"]' 'subscriptions'
+
+role_scopes="$(epac_set_unique_role_assignment_scopes "/subscriptions/sub1/resourceGroups/rg1" "$role_scopes")"
+assert_json_eq "resourceGroups scope classified" "$role_scopes" '.resourceGroups["/subscriptions/sub1/resourceGroups/rg1"]' 'resourceGroups'
+
+role_scopes="$(epac_set_unique_role_assignment_scopes "/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1" "$role_scopes")"
+assert_json_eq "resources scope classified" "$role_scopes" '.resources["/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.Compute/virtualMachines/vm1"]' 'resources'
+
+# ═══════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "================================================================="
 echo "  RESULTS: ${PASS} passed, ${FAIL} failed"
