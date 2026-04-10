@@ -98,12 +98,16 @@ jq -n \
     '{
         "$schema": $schema,
         pacOwnerId: $owner_id,
-        managedIdentityLocations: { "*": $location },
         pacEnvironments: [{
             pacSelector: "quick-start",
             cloud: "AzureCloud",
             tenantId: $tenant,
-            deploymentRootScope: $scope
+            deploymentRootScope: $scope,
+            managedIdentityLocation: $location,
+            desiredState: {
+                strategy: "full",
+                keepDfcSecurityAssignments: false
+            }
         }]
     }' > "$output_file"
 
