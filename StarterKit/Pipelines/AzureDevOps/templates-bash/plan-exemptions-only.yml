@@ -1,0 +1,22 @@
+parameters:
+  - name: serviceConnection
+    type: string
+  - name: pacEnvironmentSelector
+    type: string
+
+steps:
+  - checkout: self
+  - task: AzureCLI@2
+    name: Plan
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      scriptType: bash
+      scriptLocation: scriptPath
+      scriptPath: "scripts/deploy/build-deployment-plans.sh"
+      arguments: >-
+        --pac-selector ${{ parameters.pacEnvironmentSelector }}
+        --build-exemptions-only
+        --devops-type ado
+  - publish: "$(PAC_OUTPUT_FOLDER)"
+    artifact: "plans-${{ parameters.pacEnvironmentSelector }}"
+    condition: and(succeeded(), or(eq(variables['Plan.deployPolicyChanges'], 'yes'), eq(variables['Plan.deployRoleChanges'], 'yes')))

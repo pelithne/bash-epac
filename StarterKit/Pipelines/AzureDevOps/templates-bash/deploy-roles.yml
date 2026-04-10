@@ -1,0 +1,20 @@
+parameters:
+  - name: serviceConnection
+    type: string
+  - name: pacEnvironmentSelector
+    type: string
+
+steps:
+  - checkout: self
+  - download: current
+    artifact: "plans-${{ parameters.pacEnvironmentSelector }}"
+  - task: AzureCLI@2
+    name: Deploy
+    displayName: Deploy Roles
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      scriptType: bash
+      scriptLocation: scriptPath
+      scriptPath: "scripts/deploy/deploy-roles-plan.sh"
+      arguments: >-
+        --pac-selector ${{ parameters.pacEnvironmentSelector }}

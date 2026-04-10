@@ -11,7 +11,7 @@
 
 ## Overview
 
-The Documentation feature provides reports on Policy Assignments deployed within an environment, and comparisons of Policy Assignments and Sets of Policy Set definitions for considering differences in policies and effects.  Output is generated as Markdown (`.md`), and Excel (`.csv`) files using the script [`./Scripts/Operations/Build-PolicyDocumentation`](operational-scripts-reference.md#script-build-policydocumentation) It retrieves its instruction from the JSON files in this folder; the names of the definition JSON files don't matter as the script reads any file in the folder with a `.json` or `.jsonc` extension.
+The Documentation feature provides reports on Policy Assignments deployed within an environment, and comparisons of Policy Assignments and Sets of Policy Set definitions for considering differences in policies and effects.  Output is generated as Markdown (`.md`), and Excel (`.csv`) files using the script `scripts/operations/build-policy-documentation.sh`(operational-scripts-reference.md#script-build-policydocumentation) It retrieves its instruction from the JSON files in this folder; the names of the definition JSON files don't matter as the script reads any file in the folder with a `.json` or `.jsonc` extension.
 
 * Policy Assignments: Read and process Policy Assignments which are representative of an environment category, such as prod, test, dev, and sandbox. It generates Markdown (`.md`), and Excel (`.csv`) files.
 * Policy Sets: Read and process Policy Sets to compare them for Policy and effect overlap. It generates Markdown (`.md`), Excel (`.csv`) files, and JSON file (`.jsonc`).
@@ -251,7 +251,7 @@ Each file must contain one or both documentation topics, [`documentAssignments`]
 ```
 ## Automating Azure DevOps Wiki Markdown
 
-* EPAC can be used to automate the population of your Azure DevOps Wiki pages with the generated markdown files. To do this, you must call "Build-PolicyDocumentation" with the parameter either the "WikiSPN" or "WikiClonePat". 
+* EPAC can be used to automate the population of your Azure DevOps Wiki pages with the generated markdown files. To do this, you must call "build-policy-documentation.sh" with the parameter either the "WikiSPN" or "WikiClonePat". 
 
 * To ensure your EPAC reaches your Wiki, you must configure the "markdownAdoWikiConfig" property within your policy documentation file.
     * **adoOrganization**: Name of your ADO Organization
@@ -296,17 +296,17 @@ You can still override `markdownAdoWiki` or `markdownAdoWikiConfig` in a specifi
 When leveraging a Personal Access Token to push to the ADO Project Wiki, the parameter's value should be the name of the Personal Access Token (PAT) set in your pipeline variable. Example:
 
 ```
-Build-PolicyDocumentation.ps1 -WikiClonePat $(WikiClonePat)
+scripts/operations/build-policy-documentation.sh --wiki-clone-pat "$WIKI_CLONE_PAT"
 ```
 
 * This PAT only requires "Read & write" permissions for "Code", as it will modify and push these markdown files to your Wiki. For more information, please see ["Azure DevOps: Use personal access tokens"](https://learn.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows)
 
 ### Service Principal (SPN)
 
-You can push to Azure DevOps Wiki using a Service Principal by passing `-WikiSPN` to `Build-PolicyDocumentation.ps1`. The script acquires an Azure DevOps bearer token via `Get-AzAccessToken` for resource `499b84ac-1321-427f-aa17-267ca6975798` and uses it for `git clone`/`git push` to the Wiki repo.
+You can push to Azure DevOps Wiki using a Service Principal by passing `--wiki-spn` to `build-policy-documentation.sh`. The script acquires an Azure DevOps bearer token via `az account get-access-token` for resource `499b84ac-1321-427f-aa17-267ca6975798` and uses it for `git clone`/`git push` to the Wiki repo.
 
 ```
-Build-PolicyDocumentation.ps1 -WikiSPN
+scripts/operations/build-policy-documentation.sh --wiki-spn
 ```
 
 * **Prerequisites**:
@@ -315,24 +315,24 @@ Build-PolicyDocumentation.ps1 -WikiSPN
         *  Organization settings > Users > Add > Service principals (or add by Application ID).
         *  Grant project access (Project settings > Permissions) and repository permissions for the Wiki repo.
     *  Repository permissions on the Wiki Git repo (`{adoWiki}.wiki`): Allow at least "Contribute" (and typically "Create branch").
-    *  Pipeline identity logs into Azure prior to running the script (for example with Azure DevOps task `AzurePowerShell@5` bound to a Service Connection using the SPN).
+    *  Pipeline identity logs into Azure prior to running the script (for example with Azure DevOps task `AzureCLI@2` bound to a Service Connection using the SPN).
     *  Outbound network access to `https://dev.azure.com/*` and `git` available in the agent.
 
 * **Script Usage**:
     *  Add `markdownAdoWiki: true` and `markdownAdoWikiConfig` (globally or per spec as shown above).
-    *  Invoke: `Build-PolicyDocumentation.ps1 -PacSelector <your pac selector> -WikiSPN`.
+    *  Invoke: `scripts/operations/build-policy-documentation.sh --pac-selector <your pac selector> --wiki-spn`.
 
 Minimal Azure DevOps pipeline example:
 
 ```yaml
 steps:
-    - task: AzurePowerShell@5
+    - task: AzureCLI@2
         displayName: Build policy documentation → ADO Wiki via SPN
         inputs:
             azureSubscription: $(ServiceConnectionName)   # SPN-based service connection
-            ScriptPath: Scripts/Operations/Build-PolicyDocumentation.ps1
-            ScriptArguments: -PacSelector <your pac selector> -WikiSPN
-            azurePowerShellVersion: LatestVersion
+            ScriptPath: Scripts/Operations/build-policy-documentation.sh
+            ScriptArguments: --pac-selector <your pac selector> --wiki-spn
+            scriptType: bash
 ```
 > [!NOTE]
 > **SPN must be discoverable:** The SPN must be discoverable in the Azure DevOps organization and have permissions to the `{adoWiki}.wiki` repository. If the Wiki does not exist, Azure DevOps creates it on first push when permissions allow.

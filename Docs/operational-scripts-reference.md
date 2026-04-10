@@ -1,467 +1,409 @@
 # Scripts References
 
-## Script `Build-PolicyDocumentation`
+## Script `build-policy-documentation.sh`
 
 Builds documentation from instructions in policyDocumentations folder reading the deployed Policy Resources from the EPAC environment.
 
-```ps1
-Build-PolicyDocumentation [[-DefinitionsRootFolder] <String>] [[-OutputFolder] <String>] [-WindowsNewLineCells] [-Interactive <Boolean>] [-SuppressConfirmation] [-IncludeManualPolicies] [<CommonParameters>]
+```bash
+scripts/operations/build-policy-documentation.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-DefinitionsRootFolder <String>`
+#### `--definitions-root-folder <path>`
 
-Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER or './Definitions'.
+Definitions folder path. Defaults to environment variable `PAC_DEFINITIONS_FOLDER` or `./Definitions`.
 
-#### `-OutputFolder <String>`
+#### `--output-folder <path>`
 
-Output Folder. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER or './Outputs'.
+Output Folder. Defaults to environment variable `PAC_OUTPUT_FOLDER` or `./Outputs`.
 
-#### `-WindowsNewLineCells [<SwitchParameter>]`
+#### `--windows-newline-cells`
 
-Formats CSV multi-object cells to use new lines and saves it as UTF-8 with BOM - works only for Excel in Windows. Default uses commas to separate array elements within a cell
+Formats CSV multi-object cells to use new lines and saves it as UTF-8 with BOM - works only for Excel in Windows. Default uses commas to separate array elements within a cell.
 
-#### `-Interactive <Boolean>`
+#### `--interactive`
 
-Set to false if used non-interactive
+Enable interactive mode.
 
-#### `-SuppressConfirmation [<SwitchParameter>]`
+#### `--suppress-confirmation`
 
-Suppresses prompt for confirmation to delete an existing file in interactive mode
+Suppresses prompt for confirmation to delete an existing file in interactive mode.
 
-#### `-IncludeManualPolicies [<SwitchParameter>]`
+#### `--include-manual-policies`
 
 Include Policies with effect Manual. Default: do not include Policies with effect Manual.
 
-## Script `New-AzRemediationTasks`
+## Script `new-az-remediation-tasks.sh`
 
-The New-AzRemediationTasks PowerShell creates remediation tasks for all non-compliant resources in the current Entra ID tenant. If one or multiple remediation tasks fail, their respective objects are added to a PowerShell variable that is outputted for later use in the Azure DevOps Pipeline.
+Creates remediation tasks for all non-compliant resources in the current Entra ID tenant. If one or multiple remediation tasks fail, their respective objects are output as JSON for later use in the CI/CD pipeline.
 
-```ps1
-New-AzRemediationTasks [[-PacEnvironmentSelector] <String>] [-DefinitionsRootFolder <String>] [-Interactive <Boolean>] [-OnlyCheckManagedAssignments] [-PolicyDefinitionFilter <String[]>] [-PolicySetDefinitionFilter <String[]>] [-PolicyAssignmentFilter <String[]>] [-PolicyEffectFilter <String[]>] [-NoWait] [-TestRun] [-Confirm] [<CommonParameters>]
+```bash
+scripts/operations/new-az-remediation-tasks.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-PacEnvironmentSelector <String>`
+#### `--pac-environment-selector <name>`, `-p <name>`
 
-Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc.
+Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$PAC_DEFINITIONS_FOLDER/global-settings.jsonc`.
 
-#### `-DefinitionsRootFolder <String>`
+#### `--definitions-root-folder <path>`, `-d <path>`
 
-Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER or './Definitions'.
+Definitions folder path. Defaults to environment variable `PAC_DEFINITIONS_FOLDER` or `./Definitions`.
 
-#### `-Interactive <Boolean>`
+#### `--interactive`
 
-Set to false if used non-interactive
+Enable interactive mode.
 
-#### `-OnlyCheckManagedAssignments [<SwitchParameter>]`
+#### `--only-check-managed-assignments`
 
-Include non-compliance data only for Policy assignments owned by this Policy as Code repo
+Include non-compliance data only for Policy assignments owned by this Policy as Code repo.
 
-#### `-PolicyDefinitionFilter <String[]>`
+#### `--policy-definition-filter <names>`
 
-Filter by Policy definition names (array) or ids (array).
+Filter by Policy definition names (comma-separated) or ids.
 
-#### `-PolicySetDefinitionFilter <String[]>`
+#### `--policy-set-definition-filter <names>`
 
-Filter by Policy Set definition names (array) or ids (array).
+Filter by Policy Set definition names (comma-separated) or ids.
 
-#### `-PolicyAssignmentFilter <String[]>`
+#### `--policy-assignment-filter <names>`
 
-Filter by Policy Assignment names (array) or ids (array).
+Filter by Policy Assignment names (comma-separated) or ids.
 
-#### `-PolicyEffectFilter <String[]>`
+#### `--policy-effect-filter <effects>`
 
-Filter by Policy effect (array).
+Filter by Policy effect (comma-separated).
 
-#### `-NoWait [<SwitchParameter>]`
+#### `--no-wait`
+
 Indicates that the script should not wait for the remediation tasks to complete.
 
-#### `-TestRun [<SwitchParameter>]`
+#### `--test-run`
+
 Simulates the actions of the command without actually performing them. Useful for testing.
 
-#### `-Confirm [<SwitchParameter>]`
-Prompts for confirmation before executing the command.
+## Script `new-azure-devops-bug.sh`
 
-## Script `New-AzureDevOpsBug`
+Creates a Bug on the current Iteration of a team when one or multiple Remediation Tasks fail. The Bug is formatted as an HTML table and contains information on the name and URL properties.
 
-Creates a Bug on the current Iteration of a team when one or multiple Remediation Tasks fail. The Bug is formatted as an HTML table and contains information on the name and URL properties. As a result, the team can easily locate and resolve the Remediation Tasks that failed.
-
-```ps1
-New-AzureDevOpsBug [-FailedPolicyRemediationTasksJsonString] <String> [-ModuleName] <String> [-OrganizationName] <String> [-ProjectName] <String> [-PersonalAccessToken] <String> [-TeamName] <String> [<CommonParameters>]
+```bash
+scripts/operations/new-azure-devops-bug.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-FailedPolicyRemediationTasksJsonString <String>`
+#### `--failed-tasks-json <json-string>`
 
-Specifies the JSON string that contains the objects of one or multiple failed Remediation Tasks.
+JSON string that contains the objects of one or multiple failed Remediation Tasks.
 
-#### `-ModuleName <String>`
+#### `--organization-name <name>`
 
-Specifies the name of the PowerShell module installed at the beginning of the PowerShell script. By default, this is the VSTeam PowerShell Module.
+Name of the Azure DevOps Organization.
 
-#### `-OrganizationName <String>`
+#### `--project-name <name>`
 
-Specifies the name of the Azure DevOps Organization.
+Name of the Azure DevOps Project.
 
-#### `-ProjectName <String>`
+#### `--personal-access-token <token>`
 
-Specifies the name of the Azure DevOps Project.
+Personal Access Token for authentication. Use a secret variable from your pipeline.
 
-#### `-PersonalAccessToken <String>`
+#### `--team-name <name>`
 
-Specifies the Personal Access Token that is used for authentication purposes. Make sure that you use the AzureKeyVault@2 task (link below) for this purpose.
+Name of the Azure DevOps team.
 
-#### `-TeamName <String>`
+## Script `new-github-issue.sh`
 
-Specifies the name of the Azure DevOps team.
+Creates an Issue in a GitHub Repository when one or multiple Remediation Tasks fail. The Issue is formatted as an HTML table and contains information on the name and URL properties.
 
-## Script `New-GitHubIssue`
-
-Creates an Issue in a GitHub Repository that is located under a GitHub Organization when one or multiple Remediation Tasks fail. The Bug is formatted as an HTML table and contains information on the name and URL properties. As a result, the team can easily locate and resolve the Remediation Tasks that failed.
-
-```ps1
-New-GitHubIssue [-FailedPolicyRemediationTasksJsonString] <String> [-OrganizationName] <String> [-RepositoryName] <String> [-PersonalAccessToken] <String> [<CommonParameters>]
+```bash
+scripts/operations/new-github-issue.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-FailedPolicyRemediationTasksJsonString <String>`
+#### `--failed-tasks-json <json-string>`
 
-Specifies the JSON string that contains the objects of one or multiple failed Remediation Tasks.
+JSON string that contains the objects of one or multiple failed Remediation Tasks.
 
-#### `-OrganizationName <String>`
+#### `--organization-name <name>`
 
-Specifies the name of the GitHub Organization.
+Name of the GitHub Organization.
 
-#### `-RepositoryName <String>`
+#### `--repository-name <name>`
 
-Specifies the name of the GitHub Repository.
+Name of the GitHub Repository.
 
-#### `-PersonalAccessToken <String>`
+#### `--personal-access-token <token>`
 
-## Script `Export-AzPolicyResources`
+Personal Access Token for authentication.
 
-Exports Azure Policy resources in EPAC format or raw format. It also generates documentation for the exported resources (can be suppressed with `-SuppressDocumentation`).
+## Script `export-az-policy-resources.sh`
 
-```ps1
-Export-AzPolicyResources [[-DefinitionsRootFolder] <String>] [[-OutputFolder] <String>] [[-Interactive] <Boolean>] [-IncludeChildScopes] [-IncludeAutoAssigned] [[-ExemptionFiles] <String>] [[-FileExtension] <String>] [[-Mode] <String>] [[-InputPacSelector] <String>] [-SuppressDocumentation] [-SuppressEpacOutput] [-PSRuleIgnoreFullScope] [<CommonParameters>]
+Exports Azure Policy resources in EPAC format or raw format. It also generates documentation for the exported resources (can be suppressed with `--suppress-documentation`).
+
+```bash
+scripts/operations/export-az-policy-resources.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-DefinitionsRootFolder <String>`
+#### `--definitions-root-folder <path>`, `-d <path>`
 
-        Definitions folder path. Defaults to environment variable $env:PAC_DEFINITIONS_FOLDER or './Definitions'.
+Definitions folder path. Defaults to environment variable `PAC_DEFINITIONS_FOLDER` or `./Definitions`.
 
-#### `-OutputFolder <String>`
+#### `--output-folder <path>`, `-o <path>`
 
-Output Folder. Defaults to environment variable $env:PAC_OUTPUT_FOLDER or './Outputs'.
+Output Folder. Defaults to environment variable `PAC_OUTPUT_FOLDER` or `./Outputs`.
 
-#### `-Interactive <Boolean>`
+#### `--interactive`
 
-Set to false if used non-interactive. Defaults to $true.
+Enable interactive mode. Default is non-interactive.
 
-#### `-IncludeChildScopes [<SwitchParameter>]`
+#### `--include-child-scopes`
 
-Switch parameter to include Policies and Policy Sets definitions in child scopes
+Include Policies and Policy Sets definitions in child scopes.
 
-#### `-IncludeAutoAssigned [<SwitchParameter>]`
+#### `--include-auto-assigned`
 
-Switch parameter to include Assignments auto-assigned by Defender for Cloud
+Include Assignments auto-assigned by Defender for Cloud.
 
-#### `-ExemptionFiles <String>`
+#### `--exemption-files <format>`
 
-Create Exemption files (none=suppress, csv=as a csv file, json=as a json or jsonc file). Defaults to 'csv'.
+Create Exemption files (none=suppress, csv=as a csv file, json=as a json or jsonc file). Defaults to `csv`.
 
-#### `-FileExtension <String>`
+#### `--file-extension <ext>`
 
-File extension type for the output files. Defaults to '.jsonc'.
+File extension type for the output files. Defaults to `.jsonc`.
 
-#### `-Mode <String>`
+#### `--mode <mode>`
 
 Operating mode:
 
-- `export` exports EPAC environments in EPAC format, which should be used with -Interactive $true in a multi-tenant scenario, or used with an inputPacSelector to limit the scope to one EPAC environment.
-- `collectRawFile` exports the raw data only; Often used with 'inputPacSelector' when running non-interactive in a multi-tenant scenario to collect the raw data once per tenant into a file named after the EPAC environment
-- `exportFromRawFiles` reads the files generated with one or more runs of b) and outputs the files the same as normal 'export'.
-- `exportRawToPipeline` exports EPAC environments in EPAC format, which should be used with `-Interactive` $true in a multi-tenant scenario, or used with an inputPacSelector to limit the scope to one EPAC environment.
-- `psrule` exports EPAC environment into a file which can be used to create policy rules for PSRule for Azure
+- `export` exports EPAC environments in EPAC format, which should be used with `--interactive` in a multi-tenant scenario, or used with `--input-pac-selector` to limit the scope to one EPAC environment.
+- `collectRawFile` exports the raw data only; Often used with `--input-pac-selector` when running non-interactive in a multi-tenant scenario to collect the raw data once per tenant into a file named after the EPAC environment.
+- `exportFromRawFiles` reads the files generated with one or more runs of collectRawFile and outputs the files the same as normal `export`.
+- `exportRawToPipeline` exports EPAC environments in EPAC format.
+- `psrule` exports EPAC environment into a file which can be used to create policy rules for PSRule for Azure.
 
-#### `-InputPacSelector <String>`
+#### `--input-pac-selector <name>`
 
-Limits the collection to one EPAC environment, useful for non-interactive use in a multi-tenant scenario, especially with -Mode 'collectRawFile'.
-        The default is '*' which will execute all EPAC-Environments.
+Limits the collection to one EPAC environment.
 
-#### `-SuppressDocumentation [<SwitchParameter>]`
+#### `--suppress-documentation`
 
 Suppress documentation generation.
 
-#### `-SuppressEpacOutput [<SwitchParameter>]`
+#### `--suppress-epac-output`
 
 Suppress output generation in EPAC format.
 
-#### `-PSRuleIgnoreFullScope [<SwitchParameter>]`
+#### `--psrule-ignore-full-scope`
 
-Ignore full scope for PsRule Extraction
+Ignore full scope for PSRule Extraction.
 
-## Script `Export-NonComplianceReports`
+## Script `export-non-compliance-reports.sh`
 
-Exports Non-Compliance Reports in CSV format
+Exports Non-Compliance Reports in CSV format.
 
-```ps1
-Export-NonComplianceReports [[-PacEnvironmentSelector] <String>] [-DefinitionsRootFolder <String>] [-OutputFolder <String>] [-WindowsNewLineCells] [-Interactive <Boolean>] [-OnlyCheckManagedAssignments] [-PolicyDefinitionFilter <String[]>] [-PolicySetDefinitionFilter <String[]>] [-PolicyAssignmentFilter <String[]>] [-PolicyEffectFilter <String[]>] [-ExcludeManualPolicyEffect] [-RemediationOnly] [<CommonParameters>]
+```bash
+scripts/operations/export-non-compliance-reports.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-PacEnvironmentSelector <String>`
+#### `--pac-environment-selector <name>`, `-p <name>`
 
-Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc.
+Defines which PAC environment we are using.
 
-#### `-DefinitionsRootFolder <String>`
+#### `--definitions-root-folder <path>`, `-d <path>`
 
-        Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER or './Definitions'.
+Definitions folder path. Defaults to environment variable `PAC_DEFINITIONS_FOLDER` or `./Definitions`.
 
-#### `-OutputFolder <String>`
+#### `--output-folder <path>`, `-o <path>`
 
-Output Folder. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER or './Outputs'.
+Output Folder. Defaults to environment variable `PAC_OUTPUT_FOLDER` or `./Outputs`.
 
-#### `-WindowsNewLineCells [<SwitchParameter>]`
+#### `--windows-newline-cells`
 
-Formats CSV multi-object cells to use new lines and saves it as UTF-8 with BOM - works only fro Excel in Windows. Default uses commas to separate array elements within a cell
+Formats CSV multi-object cells to use new lines. Default uses commas.
 
-#### `-Interactive <Boolean>`
+#### `--interactive`
 
-Set to false if used non-interactive
+Enable interactive mode.
 
-#### `-OnlyCheckManagedAssignments [<SwitchParameter>]`
+#### `--only-check-managed-assignments`
 
-Include non-compliance data only for Policy assignments owned by this Policy as Code repo
+Include non-compliance data only for Policy assignments owned by this Policy as Code repo.
 
-#### `-PolicyDefinitionFilter <String[]>`
+#### `--policy-definition-filter <names>`
 
-Filter by Policy definition names (array) or ids (array).
+Filter by Policy definition names (comma-separated) or ids.
 
-#### `-PolicySetDefinitionFilter <String[]>`
+#### `--policy-set-definition-filter <names>`
 
-Filter by Policy Set definition names (array) or ids (array).
+Filter by Policy Set definition names (comma-separated) or ids.
 
-#### `-PolicyAssignmentFilter <String[]>`
+#### `--policy-assignment-filter <names>`
 
-Filter by Policy Assignment names (array) or ids (array).
+Filter by Policy Assignment names (comma-separated) or ids.
 
-#### `-PolicyEffectFilter <String[]>`
+#### `--policy-effect-filter <effects>`
 
-Filter by Policy Effect (array).
+Filter by Policy Effect (comma-separated).
 
-#### `-ExcludeManualPolicyEffect [<SwitchParameter>]`
+#### `--exclude-manual-policy-effect`
 
-Switch parameter to filter out Policy Effect Manual
+Filter out Policy Effect Manual.
 
-#### `-RemediationOnly [<SwitchParameter>]`
+#### `--remediation-only`
 
-Filter by Policy Effect "deployifnotexists" and "modify" and compliance status "NonCompliant"
+Filter by Policy Effect "deployifnotexists" and "modify" and compliance status "NonCompliant".
 
-## Script `Get-AzExemptions`
+## Script `get-az-exemptions.sh`
 
 Retrieves Policy Exemptions from an EPAC environment and saves them to files.
 
-```ps1
-Get-AzExemptions [[-PacEnvironmentSelector] <String>] [-DefinitionsRootFolder <String>] [-OutputFolder <String>] [-Interactive <Boolean>] [-FileExtension <String>] [-ActiveExemptionsOnly] [<CommonParameters>]
+```bash
+scripts/operations/get-az-exemptions.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-PacEnvironmentSelector <String>`
+#### `--pac-environment-selector <name>`, `-p <name>`
 
-Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc.
+Defines which PAC environment we are using.
 
-#### `-DefinitionsRootFolder <String>`
+#### `--definitions-root-folder <path>`, `-d <path>`
 
-Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER or './Definitions'.
+Definitions folder path. Defaults to environment variable `PAC_DEFINITIONS_FOLDER` or `./Definitions`.
 
-#### `-OutputFolder <String>`
+#### `--output-folder <path>`, `-o <path>`
 
-Output Folder. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER or './Outputs'.
+Output Folder. Defaults to environment variable `PAC_OUTPUT_FOLDER` or `./Outputs`.
 
-#### `-Interactive <Boolean>`
+#### `--interactive`
 
-Set to false if used non-interactive
+Enable interactive mode.
 
-#### `-FileExtension <String>`
+#### `--file-extension <ext>`
 
-File extension type for the output files. Valid values are json or jsonc. The default output file is json.
+File extension type for the output files. Valid values are `json` or `jsonc`. Default is `json`.
 
-#### `-ActiveExemptionsOnly [<SwitchParameter>]`
+#### `--active-exemptions-only`
 
-Set to true to only generate files for active (not expired and not orphaned) exemptions. Defaults to false.
+Only generate files for active (not expired and not orphaned) exemptions. Defaults to false.
 
-## Script `Get-AzMissingTags`
-
-Gets all resources that are missing tags in the current subscription.
-
-```ps1
-Get-AzMissingTags [[-PacEnvironmentSelector] <String>] [-DefinitionsRootFolder <String>] [-OutputFileName <String>] [-Interactive <Boolean>] [<CommonParameters>]
-```
-
-### Parameters
-
-#### `-PacEnvironmentSelector <String>`
-
-Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc.
-
-#### `-DefinitionsRootFolder <String>`
-
-Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER or './Definitions'.
-
-#### `-OutputFileName <String>`
-
-Output file name. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER/Tags/missing-tags-results.csv or './Outputs/Tags/missing-tags-results.csv'.
-
-#### `-Interactive <Boolean>`
-
-Set to false if used non-interactive
-
-## Script `Get-AzPolicyAliasOutputCSV`
+## Script `get-az-policy-alias-output-csv.sh`
 
 Gets all aliases and outputs them to a CSV file.
 
-```ps1
-Get-AzPolicyAliasOutputCSV [<CommonParameters>]
+```bash
+scripts/operations/get-az-policy-alias-output-csv.sh
 ```
 
-## Script `New-AzPolicyReaderRole`
+## Script `new-az-policy-reader-role.sh`
 
 Creates a custom role 'Policy Reader' that provides read access to all Policy resources to plan the EPAC deployments.
 
-```ps1
-New-AzPolicyReaderRole [[-PacEnvironmentSelector] <String>] [-DefinitionsRootFolder <String>] [-Interactive <Boolean>] [<CommonParameters>]
+```bash
+scripts/operations/new-az-policy-reader-role.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-PacEnvironmentSelector <String>`
+#### `--pac-environment-selector <name>`, `-p <name>`
 
-Defines which Policy as Code (PAC) environment we are using, if omitted, the script prompts for a value. The values are read from `$DefinitionsRootFolder/global-settings.jsonc.
+Defines which PAC environment we are using.
 
-#### `-DefinitionsRootFolder <String>`
+#### `--definitions-root-folder <path>`, `-d <path>`
 
-    Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER or './Definitions'.
+Definitions folder path. Defaults to environment variable `PAC_DEFINITIONS_FOLDER` or `./Definitions`.
 
-#### `-Interactive <Boolean>`
+#### `--interactive`
 
-Set to false if used non-interactive
+Enable interactive mode.
 
-## Script `New-HydrationDefinitionsFolder`
+## Script `new-epac-definitions-folder.sh`
 
 Creates a definitions folder with the correct folder structure and blank global settings file.
 
-```ps1
-New-HydrationsDefinitionFolder [[-DefinitionsRootFolder] <String>] [<CommonParameters>]
-```
-
-### Description
-
-Creates a definitions folder with the correct folder structure and blank global settings file.
-
-### Parameters
-
-#### `-DefinitionsRootFolder <String>`
-
-The folder path to create the definitions root folder (./Definitions)
-
-## Script `New-EpacGlobalSettings`
-
-Creates a global-settings.jsonc file with a new GUID, managed identity location and tenant information
-
-```ps1
-New-EpacGlobalSettings [-ManagedIdentityLocation] <String> [-TenantId] <String> [-DefinitionsRootFolder] <String> [-DeploymentRootScope] <String> [<CommonParameters>]
+```bash
+scripts/hydration/new-hydration-definitions-folder.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-ManagedIdentityLocation <String>`
+#### `--definitions-root-folder <path>`
 
-The Azure location to store the managed identities (Get-AzLocation|Select Location)
+The folder path to create the definitions root folder (./Definitions).
 
-#### `-TenantId <String>`
+## Script `new-epac-global-settings.sh`
 
-The Azure tenant id
+Creates a global-settings.jsonc file with a new GUID, managed identity location and tenant information.
 
-#### `-DefinitionsRootFolder <String>`
-
-The folder path to where the New-EpacDefinitionsFolder command created the definitions root folder (C:\definitions\)
-
-#### `-DeploymentRootScope <String>`
-
-The root management group to export definitions and assignments (/providers/Microsoft.Management/managementGroups/)
-
-## Script `New-EpacPolicyAssignmentDefinition`
-
-Exports a policy assignment from Azure to a local file in the EPAC format.
-
-```ps1
-New-EpacPolicyAssignmentDefinition [-PolicyAssignmentId] <String> [[-OutputFolder] <String>] [<CommonParameters>]
+```bash
+scripts/operations/new-epac-global-settings.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-PolicyAssignmentId <String>`
+#### `--managed-identity-location <location>`
 
-The policy assignment id
+The Azure location to store the managed identities (e.g., `eastus2`). Use `az account list-locations --query '[].name' -o tsv` to list available locations.
 
-#### `-OutputFolder <String>`
+#### `--tenant-id <id>`
 
-The folder path for the Policy Assignment.
+The Azure tenant id.
 
-## Script `New-EpacPolicyDefinition`
+#### `--definitions-root-folder <path>`
 
-Exports a Policy definition from Azure to a local file in the EPAC format
+The folder path to where the definitions root folder was created.
 
-```ps1
-New-EpacPolicyDefinition [-PolicyDefinitionId] <String> [[-OutputFolder] <String>] [<CommonParameters>]
+#### `--deployment-root-scope <scope>`
+
+The deployment root scope for the EPAC environment.
+
+## Script `new-epac-policy-assignment-definition.sh`
+
+Scaffolds a new Policy Assignment definition file.
+
+```bash
+scripts/operations/new-epac-policy-assignment-definition.sh [OPTIONS]
+```
+
+## Script `new-epac-policy-definition.sh`
+
+Scaffolds a new Policy definition file.
+
+```bash
+scripts/operations/new-epac-policy-definition.sh [OPTIONS]
+```
+
+## Script `new-pipelines-from-starter-kit.sh`
+
+Creates CI/CD pipeline files from the starter kit templates.
+
+```bash
+scripts/operations/new-pipelines-from-starter-kit.sh [OPTIONS]
 ```
 
 ### Parameters
 
-#### `-PolicyDefinitionId <String>`
+#### `--starter-kit-folder <path>`
 
-The Policy definition id.
+Path to the StarterKit folder.
 
-#### `-OutputFolder <String>`
+#### `--pipelines-folder <path>`
 
-The folder path for the Policy Definition.
+Folder where the generated pipelines will be placed.
 
-## Script `New-PipelineFromStarterKit`
+#### `--pipeline-type <type>`
 
-This script copies pipelines and templates from the starter kit to a new folder. The script assembles the pipelines/workflows based on the type of pipeline to create, the branching flow to implement, and the type of script to use.
+Type of pipeline to generate: `AzureDevOps`, `GitHubActions`, or `GitLab`.
 
-```ps1
-New-PipelineFromStarterKit [[-StarterKitFolder] <String>] [[-PipelinesFolder] <String>] [[-PipelineType] <String>] [[-BranchingFlow] <String>] [[-ScriptType] <String>] [<CommonParameters>]
-```
+#### `--branching-flow <flow>`
 
-### Parameters
-
-#### `-StarterKitFolder <String>`
-
-Starter kit folder
-
-#### `-PipelinesFolder <String>`
-
-New pipeline folder
-
-#### `-PipelineType <String>`
-
-Type of DevOps pipeline to create AzureDevOps or GitHubActions?
-
-#### `-BranchingFlow <String>`
-
-Implementing branching flow Release or GitHub
-
-#### `-ScriptType <String>`
-
-Using Powershell module or script?
+Branching flow to use: `GitHub` or `Release`.

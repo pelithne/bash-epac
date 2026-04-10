@@ -17,21 +17,21 @@ To use the ALZ policies in an environment successfully there are some Azure Reso
 
 This file contains information that drives the sync process. The file includes management group IDs, default enforcement mode, and parameter values. **It must be generated at least once before executing the sync process.**
 
-1. Ensure that the EPAC module is up to date - required minimum version to use these features is 10.9.0.
+1. Ensure that the EPAC scripts are installed and up to date.
 2. Use the code below to clone the library repository and create the default file. There are examples below on how to run this command - you will only need to run one of these depending on your requirements.
 
-   ```ps1
+   ```bash
    # Create a Pac Environment default file for ALZ policies using the latest release of the ALZ Library release
-   New-ALZPolicyDefaultStructure -DefinitionsRootFolder .\Definitions -Type ALZ -PacEnvironmentSelector "epac-dev"
+   scripts/caf/new-alz-policy-default-structure.sh --definitions-root-folder ./Definitions --type ALZ --pac-environment-selector "epac-dev"
 
    # Create a default file for ALZ policies specifying a tagged release of the ALZ Library 
-   New-ALZPolicyDefaultStructure -DefinitionsRootFolder .\Definitions -Type ALZ -Tag "platform/alz/2025.02.0"
+   scripts/caf/new-alz-policy-default-structure.sh --definitions-root-folder ./Definitions --type ALZ --tag "platform/alz/2025.02.0"
 
    # Create a default file for ALZ policies by providing a path to a cloned/modified library 
-   New-ALZPolicyDefaultStructure -DefinitionsRootFolder .\Definitions -Type ALZ -LibraryPath <<path to library>>
+   scripts/caf/new-alz-policy-default-structure.sh --definitions-root-folder ./Definitions --type ALZ --library-path <<path to library>>
 
    # Create a default file for AMBA policies using the latest release of the ALZ Library
-   New-ALZPolicyDefaultStructure -DefinitionsRootFolder .\Definitions -Type AMBA
+   scripts/caf/new-alz-policy-default-structure.sh --definitions-root-folder ./Definitions --type AMBA
    ```
 
 3. The file is generated in the `policyStructures` directory inside the DefinitionsRootFolder. It contains a representation of a management group structure, enforcement mode settings and required default parameter values. Update these values to match your environment.
@@ -72,39 +72,39 @@ This file contains information that drives the sync process. The file includes m
 
 The next command will generate policy assignment files based on the values in this file, so ensure they are correct for your environment.
 
-1. Use the `Sync-ALZPolicyFromLibrary` command to sync the policy files and update scopes and parameters based on the information in the previously created file. There are examples below on how to run this command - you will only need to run one of these depending on your requirements. The files will be copied into their own folder to separate them from any definitions already in the repository.
+1. Use the `sync-alz-policy-from-library.sh` command to sync the policy files and update scopes and parameters based on the information in the previously created file. There are examples below on how to run this command - you will only need to run one of these depending on your requirements. The files will be copied into their own folder to separate them from any definitions already in the repository.
 
-   ```ps1
+   ```bash
    # Sync the ALZ policies and assign to the "epac-dev" PAC environment.
-   Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type ALZ -PacEnvironmentSelector "epac-dev"
+   scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type ALZ --pac-environment-selector "epac-dev"
 
    # Sync the ALZ policies and assign to the "epac-dev" PAC environment. Specify a released version of the ALZ library
-   Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type ALZ -PacEnvironmentSelector "epac-dev" -Tag "platform/alz/2025.02.0"
+   scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type ALZ --pac-environment-selector "epac-dev" --tag "platform/alz/2025.02.0"
 
    # Sync the ALZ policies from a cloned/modified library
-   Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type ALZ -PacEnvironmentSelector "epac-dev" -LibraryPath <<path to library>>
+   scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type ALZ --pac-environment-selector "epac-dev" --library-path <<path to library>>
 
    # Sync the AMBA policies and assign to the "epac-dev" PAC environment.
-   Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type AMBA -PacEnvironmentSelector "epac-dev"
+   scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type AMBA --pac-environment-selector "epac-dev"
 
    # Sync the AMBA policies and assign to the "epac-dev" PAC environment. Specify a released version of the ALZ library
-   Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type AMBA -PacEnvironmentSelector "epac-dev" -Tag "platform/amba/2025.06.0"
+   scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type AMBA --pac-environment-selector "epac-dev" --tag "platform/amba/2025.06.0"
    ```
 
    Carefully review the generated policy assignments and ensure all parameter and scope information is correct.
 
-2. When complete, run `Build-DeploymentPlans` to ensure the correct changes are made. During the first sync for either a new or existing environment there will be many changes due to updating of the existing policies.
+2. When complete, run `scripts/deploy/build-deployment-plans.sh` to ensure the correct changes are made. During the first sync for either a new or existing environment there will be many changes due to updating of the existing policies.
 
 ## Examples
 
 ### ALZ
 
-```ps1
+```bash
 # Create a Pac Environment default file for ALZ policies using the latest release of the ALZ Library 
-New-ALZPolicyDefaultStructure -DefinitionsRootFolder .\Definitions -Type ALZ -PacEnvironmentSelector "epac-dev"
+scripts/caf/new-alz-policy-default-structure.sh --definitions-root-folder ./Definitions --type ALZ --pac-environment-selector "epac-dev"
 
 # Sync the ALZ policies and assign to the "epac-dev" PAC environment.
-Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type ALZ -PacEnvironmentSelector "epac-dev"
+scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type ALZ --pac-environment-selector "epac-dev"
 ```
 
 ### AMBA (ALZ)
@@ -114,31 +114,31 @@ For users interested in deploying the [Azure Monitor Baseline Alerts](https://az
 > [!Note]
 > It is recommended to review breaking changes on the [AMBA Releases](https://azure.github.io/azure-monitor-baseline-alerts/patterns/alz/HowTo/UpdateToNewReleases/) page to avoid unexpected failed policy deployments. In most cases, it's an update of a parameter type (i.e. String -> Array).
 
-```ps1
+```bash
 # Create a Pac Environment default file for AMBA policies using the latest release of the ALZ Library 
-New-ALZPolicyDefaultStructure -DefinitionsRootFolder .\Definitions -Type AMBA -PacEnvironmentSelector "epac-dev"
+scripts/caf/new-alz-policy-default-structure.sh --definitions-root-folder ./Definitions --type AMBA --pac-environment-selector "epac-dev"
 
 # Sync the AMBA policies and assign to the "epac-dev" PAC environment.
-Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type AMBA -PacEnvironmentSelector "epac-dev"
+scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type AMBA --pac-environment-selector "epac-dev"
 ```
 
-The Azure Monitor Baseline Alerts project also provides a number of policy definitions not included in the ALZ Library. To sync these definitions use the `-SyncAMBAExtendedPolicies` switch as below when syncing the AMBA policies. 
+The Azure Monitor Baseline Alerts project also provides a number of policy definitions not included in the ALZ Library. To sync these definitions use the `--sync-amba-extended-policies` switch as below when syncing the AMBA policies. 
 
-```ps1
+```bash
 # Sync the AMBA policies and extended policies and assign to the "epac-dev" PAC environment.
-Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type AMBA -PacEnvironmentSelector "epac-dev" -SyncAMBAExtendedPolicies
+scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type AMBA --pac-environment-selector "epac-dev" --sync-amba-extended-policies
 ```
 
 ### SLZ
 
 For users interested in deploying the [Sovereignty Policy Baseline](https://github.com/Azure/sovereign-landing-zone/blob/main/docs/scenarios/Sovereignty-Baseline-Policy-Initiatives.md) project with EPAC use the commands below.
 
-```ps1
+```bash
 # Create a Pac Environment default file for SLZ policies using the latest release of the ALZ Library 
-New-ALZPolicyDefaultStructure -DefinitionsRootFolder .\Definitions -Type SLZ -PacEnvironmentSelector "epac-dev"
+scripts/caf/new-alz-policy-default-structure.sh --definitions-root-folder ./Definitions --type SLZ --pac-environment-selector "epac-dev"
 
 # Sync the SLZ policies and assign to the "epac-dev" PAC environment.
-Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type SLZ -PacEnvironmentSelector "epac-dev"
+scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type SLZ --pac-environment-selector "epac-dev"
 ```
 
 ## Advanced Scenarios
@@ -149,9 +149,9 @@ Using the format of the Azure Landing Zones repository it is possible to enable 
 
 If you need to have separate parameter values or different management group names for different PAC environments you can follow steps below.
 
-1. Generate a policy structure file using `New-ALZPolicyDefaultStructure` and specify the `-PacEnvironmentSelector` parameter.
+1. Generate a policy structure file using `new-alz-policy-default-structure.sh` and specify the `--pac-environment-selector` parameter.
 
-   This generates a standard file structure however the file's name will now include the Pac Selector given. This default structure will now be used every time you run the "Sync-ALZPolicyFromLibrary" command with the matching PacEnvironmentSelector.
+   This generates a standard file structure however the file's name will now include the Pac Selector given. This default structure will now be used every time you run the "sync-alz-policy-from-library.sh" command with the matching PacEnvironmentSelector.
 
    For example: -
 
@@ -159,7 +159,7 @@ If you need to have separate parameter values or different management group name
    alz.policy_default_structure.<PAC SELECTOR>.jsonc
    ```
 
-2. When syncing policies run the `Sync-ALZPolicyFromLibrary` once for each PAC Environment. A folder specific for that Pac Selector will now be placed within the ALZ Type.
+2. When syncing policies run the `sync-alz-policy-from-library.sh` once for each PAC Environment. A folder specific for that Pac Selector will now be placed within the ALZ Type.
 
 ### Custom management group structure (Requires EPAC v11)
 
@@ -230,10 +230,10 @@ We also have to add the new management groups to the `managementGroupNameMapping
 }
 ```
 
-Now run the sync process using a command similar to below. Ensure the `-EnableOverrides` parameter is added.
+Now run the sync process using a command similar to below. Ensure the `--enable-overrides` parameter is added.
 
-```ps1
-Sync-ALZPolicyFromLibrary.ps1 -DefinitionsRootFolder .\Definitions\ -Type ALZ -PacEnvironmentSelector epac-dev -EnableOverrides
+```bash
+scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder .\Definitions\ --type ALZ --pac-environment-selector epac-dev --enable-overrides
 ```
 
 ### Customize an existing archetype (Requires EPAC v11)
@@ -305,7 +305,7 @@ To stop assignments for an archetype from being created add the archetype name t
   }
 }
 ```
-Run a sync using the `-EnableOverrides` parameter and any assignments aligned to these archetypes will not have files created. 
+Run a sync using the `--enable-overrides` parameter and any assignments aligned to these archetypes will not have files created. 
 
 ### Modify a parameter for a specific archetype (Requires EPAC v11)
 
@@ -331,7 +331,7 @@ To specify or modify a parameter for a specific archetype you can specify it usi
 }
 ```
 
-Run a sync using the `-EnableOverrides` parameter and the parameters will be updated. This can be used to override parameters in the `defaultParameterValues` section. 
+Run a sync using the `--enable-overrides` parameter and the parameters will be updated. This can be used to override parameters in the `defaultParameterValues` section. 
 
 ### Modify the enforcement mode for an assignment (Requires EPAC v11)
 
@@ -348,7 +348,7 @@ The `enforcementMode` key in the structure file sets the initial value for all a
   }
 ```
 
-Run a sync using the `-EnableOverrides` parameter and the enforcement mode will be updated.
+Run a sync using the `--enable-overrides` parameter and the enforcement mode will be updated.
 
 ### Assign an archetype to multiple management groups (Requires EPAC v11)
 
@@ -368,7 +368,7 @@ Management group name mappings now accept an array of values instead of just a s
 
 If you are using EPAC v11 please refer to the section above for modifying a parameter for a specific archetype as it works best for single parameters. If you have to modify the same parameter for a number of ALZ assignments you can use the process below. 
 
-If you need to disable a single policy parameter, such as the 'effect' for a specific policy within an assignment, add that parameter to your default file structure to ensure it is not overwritten when running the **Sync-ALZPolicyFromLibrary** command.
+If you need to disable a single policy parameter, such as the 'effect' for a specific policy within an assignment, add that parameter to your default file structure to ensure it is not overwritten when running the **sync-alz-policy-from-library.sh** command.
 
 An example of disabling the **"Configure Microsoft Defender for Key Vault plan"** in the **"Deploy-MDFC-Config-H224"** Policy Assignment.
 
@@ -390,15 +390,15 @@ An example of disabling the **"Configure Microsoft Defender for Key Vault plan"*
 > [!NOTE]
 > This process has recently changed and guardrail assignments are now placed into the corresponding management groups (by default these are `platform` and `landing_zones` archetypes.)
 
-By default ALZ specifies deploying all the guardrail policies to the `platform` and `landingzones` management group and when the `Sync-ALZPolicyFromLibrary` with the `-CreateGuardrailAssignments` parameter command runs it will generate assignments which are scoped to these management groups.
+By default ALZ specifies deploying all the guardrail policies to the `platform` and `landingzones` management group and when the `sync-alz-policy-from-library.sh` with the `--create-guardrail-assignments` parameter command runs it will generate assignments which are scoped to these management groups.
 
 To deploy guardrails assignments to a different scope or management group use the process described above to override the default assignments. The v11 process for changing parameter values and adding new parameters also works for the guardrail assignments. 
 
 Example to generate assignments with guardrails assignments included.
 
-```ps1
+```bash
 # Sync the ALZ policies and assign to the "epac-dev" PAC environment.
-Sync-ALZPolicyFromLibrary -DefinitionsRootFolder .\Definitions -Type ALZ -PacEnvironmentSelector "epac-dev" -CreateGuardrailAssignments
+scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder ./Definitions --type ALZ --pac-environment-selector "epac-dev" --create-guardrail-assignments
 ```
 
 ### Using a custom library for custom management group structures (Required EPAC v10 - migrate to the new process above)
@@ -415,7 +415,7 @@ The updated management group structure would follow similar to below:-
  |_ Production MG
 ```
 
-1. Create a fork of the [Azure Landing Zone Library](https://github.com/Azure/Azure-Landing-Zones-Library) and clone it locally. When later running the `New-ALZPolicyDefaultStructure` and `Sync-ALZPolicyFromLibrary` commands you will need to ensure the `-LibraryPath` parameter points to this cloned repo.
+1. Create a fork of the [Azure Landing Zone Library](https://github.com/Azure/Azure-Landing-Zones-Library) and clone it locally. When later running the `new-alz-policy-default-structure.sh` and `sync-alz-policy-from-library.sh` commands you will need to ensure the `--library-path` parameter points to this cloned repo.
 2. For ALZ there are two files which need to be updated - firstly we need to add the new management group archetypes into the `\platform\alz\architecture_definitions\alz.alz_architecture_definition.json` file. In this example I will remove the `corp` and `online` entries from this file and replace them with a non-production and production key as below:-
 
    ```json
@@ -464,8 +464,8 @@ The updated management group structure would follow similar to below:-
 
 6. The new structure file can now be generated - for example:-
 
-   ```ps1
-   New-ALZPolicyDefaultStructure -DefinitionsRootFolder .\Definitions\ -Type ALZ -LibraryPath ..\alz-library-fork\ -PacEnvironmentSelector epac-dev
+   ```bash
+   scripts/caf/new-alz-policy-default-structure.sh --definitions-root-folder ./Definitions\ --type ALZ --library-path ..\alz-library-fork\ --pac-environment-selector epac-dev
    ```
 
    This file will contain the new management groups in the structure file as below:-
@@ -483,8 +483,8 @@ The updated management group structure would follow similar to below:-
 
 7. Run the sync command to import the policies and generate the assignments - for example:-
 
-   ```ps1
-   Sync-ALZPolicyFromLibrary.ps1 -DefinitionsRootFolder .\Definitions\ -Type ALZ -LibraryPath ..\alz-library-fork\ -PacEnvironmentSelector epac-dev
+   ```bash
+   scripts/caf/sync-alz-policy-from-library.sh --definitions-root-folder .\Definitions\ --type ALZ --library-path ..\alz-library-fork\ --pac-environment-selector epac-dev
    ```
 
 8. There are now two new folders in the `policyAssignments\ALZ` folder as below, and looking at the assigned scope for the assignments we can see they are going to be assigned to the correct management group.

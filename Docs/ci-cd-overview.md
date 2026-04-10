@@ -9,7 +9,7 @@
   </iframe>
 </div>
 
-EPAC is written in PowerShell and any CI/CD tool with the ability to execute PowerShell can be used. The starter kits currently include pipeline definitions for Azure DevOps, GitHub Actions and GitLab. 
+EPAC is written in Bash and any CI/CD tool with the ability to execute Bash scripts with Azure CLI can be used. The starter kits currently include pipeline definitions for Azure DevOps, GitHub Actions and GitLab. 
 
 This repository contains starter pipelines and instructions for can be found here:
 
@@ -23,7 +23,7 @@ EPAC has three major steps in the deployment process for each environment.
 - Policy Deployment
 - Role Deployment
 
-Each step can be called by using the `EnterprisePolicyAsCode` PowerShell module (recommended), or calling the script directly. For more details on EPAC installation options, please refer to the [Start Implementation](start-implementing.md/#install-powershell-and-epac) section.
+Each step can be called by using the installed EPAC scripts (recommended), or calling the script directly from the source checkout. For more details on EPAC installation options, please refer to the [Start Implementation](start-implementing.md/#install-epac) section.
 
 > [!TIP]
 > EPAC is **declarative** and **idempotent**: this means, that regardless how many times it is run, EPAC will always push all changes that were implemented in the JSON files to the Azure environment, i.e. if a JSON file is newly created/updated/deleted, EPAC will create/update/delete the Policy and/or Policy Set and/or Policy Assignments definition in Azure. If there are no changes, EPAC can be run any number of times, as it won't make any changes to Azure.
@@ -31,27 +31,25 @@ Each step can be called by using the `EnterprisePolicyAsCode` PowerShell module 
 ### Build Deployment Plans
 Analyzes changes in Policy definition, Policy Set definition, Policy Assignment & Policy Exemption files for a given environment. It calculates and displays any deltas, while creating the deployment plan(s) to apply any changes. A "Policy Plan" will be created for use by the Policy Deployment step if any changes are found to the policy objects, assignments, or exemptions while a "Role Plan" will be created for use by the Role deployment step should there be any changes to role assignments for the deployed policies. If no changes are found, no plans are created.
 
-For saving the output related to ```Build-DeploymentPlans``` there is global variable called ```$epacInfoStream``` which captures all output from the commands. If required, this can be used as a PR message or to present a summary of the plan.
-
 **Deployment Mechanism**
 
 |Deployment Mode | Command/Script |
 |----------|-------------|
-| Module (Recommended) | Build-DeploymentPlans |
-| Script | Build-DeploymentPlans.ps1 | 
+| Installed | epac-plan |
+| Script | scripts/deploy/build-deployment-plans.sh | 
 
 **Parameters**
 
 |Parameter | Explanation |
 |----------|-------------|
-| `PacEnvironmentSelector` | Selects the EPAC environment for this plan. If omitted, interactively prompts for the value. |
-| `DefinitionsRootFolder` | Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER` or `./Definitions`. It must contain the file `global-settings.jsonc`. |
-| `Interactive` | Defaults to `$false`. |
-| `OutputFolder` | Output folder path for plan files. Defaults to environment variable `$env:PAC_OUTPUT_FOLDER` or `./Output`. |
-| `DevOpsType` | If set, outputs variables consumable by conditions in a DevOps pipeline. Default: not set. |
-| `BuildExemptionsOnly` | If set, only builds the Exemptions plan. This useful to fast-track Exemption when utilizing [Release Flow](#advanced-cicd-with-release-flow) Default: not set. |
-| `SkipExemptions`| If set exemptions will not be built as part of the plan. |
-| `DetailedOutput` | Displays detailed policy change information. |
+| `-p`, `--pac-environment-selector` | Selects the EPAC environment for this plan. If omitted, interactively prompts for the value. |
+| `-d`, `--definitions-root-folder` | Definitions folder path. Defaults to environment variable `PAC_DEFINITIONS_FOLDER` or `./Definitions`. It must contain the file `global-settings.jsonc`. |
+| `--interactive` | Set to enable interactive mode (prompts for pac selector if not given). |
+| `-o`, `--output-folder` | Output folder path for plan files. Defaults to environment variable `PAC_OUTPUT_FOLDER` or `./Output`. |
+| `--devops-type` | If set, outputs variables consumable by conditions in a DevOps pipeline. Default: not set. |
+| `--build-exemptions-only` | If set, only builds the Exemptions plan. This is useful to fast-track Exemptions when utilizing [Release Flow](#advanced-cicd-with-release-flow). Default: not set. |
+| `--skip-exemptions`| If set, exemptions will not be built as part of the plan. |
+| `--detailed-output` | Displays detailed policy change information. |
 
 ### Policy Deployment
 Deploys Policies, Policy Sets, Policy Assignments, and Policy Exemptions at their desired scope based on the plan.
@@ -60,18 +58,18 @@ Deploys Policies, Policy Sets, Policy Assignments, and Policy Exemptions at thei
 
 |Deployment Mode | Command/Script |
 |----------|-------------|
-| Module (Recommended) | Deploy-PolicyPlan |
-| Script | Deploy-PolicyPlan.ps1 | 
+| Installed | epac-deploy-policy |
+| Script | scripts/deploy/deploy-policy-plan.sh | 
 
 **Parameters**
 
 |Parameter | Explanation |
 |----------|-------------|
-| `PacEnvironmentSelector` | Selects the EPAC environment for this plan. If omitted, interactively prompts for the value. |
-| `DefinitionsRootFolder` | Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER` or `./Definitions`. It must contain the file `global-settings.jsonc`. |
-| `Interactive` | Defaults to `$false`. |
-| `InputFolder` | Input folder path for plan files. Defaults to environment variable `$env:PAC_INPUT_FOLDER`, `$env:PAC_OUTPUT_FOLDER` or `./Output`. |
-| `SkipExemptions` | If set, Policy Exemptions will not be deployed. |
+| `-p`, `--pac-environment-selector` | Selects the EPAC environment for this plan. If omitted, interactively prompts for the value. |
+| `-d`, `--definitions-root-folder` | Definitions folder path. Defaults to environment variable `PAC_DEFINITIONS_FOLDER` or `./Definitions`. It must contain the file `global-settings.jsonc`. |
+| `--interactive` | Set to enable interactive mode. |
+| `-i`, `--input-folder` | Input folder path for plan files. Defaults to environment variable `PAC_INPUT_FOLDER`, `PAC_OUTPUT_FOLDER` or `./Output`. |
+| `--skip-exemptions` | If set, Policy Exemptions will not be deployed. |
 
 ### Role Deployment
 Creates the role assignments for the Managed Identities required for `DeployIfNotExists` and `Modify` Policies.
@@ -80,44 +78,57 @@ Creates the role assignments for the Managed Identities required for `DeployIfNo
 
 |Deployment Mode | Command/Script |
 |----------|-------------|
-| Module (Recommended) | Deploy-RolesPlan |
-| Script | Deploy-RolesPlan.ps1 | 
+| Installed | epac-deploy-roles |
+| Script | scripts/deploy/deploy-roles-plan.sh | 
 
 **Parameters**
 
 |Parameter | Explanation |
 |----------|-------------|
-| `PacEnvironmentSelector` | Selects the EPAC environment for this plan. If omitted, interactively prompts for the value. |
-| `DefinitionsRootFolder` | Definitions folder path. Defaults to environment variable `$env:PAC_DEFINITIONS_FOLDER` or `./Definitions`. It must contain the file `global-settings.jsonc`. |
-| `Interactive` | Defaults to `$false`. |
-| `InputFolder` | Input folder path for plan files. Defaults to environment variable `$env:PAC_INPUT_FOLDER`, `$env:PAC_OUTPUT_FOLDER` or `./Output`. |
+| `-p`, `--pac-environment-selector` | Selects the EPAC environment for this plan. If omitted, interactively prompts for the value. |
+| `-d`, `--definitions-root-folder` | Definitions folder path. Defaults to environment variable `PAC_DEFINITIONS_FOLDER` or `./Definitions`. It must contain the file `global-settings.jsonc`. |
+| `--interactive` | Set to enable interactive mode. |
+| `-i`, `--input-folder` | Input folder path for plan files. Defaults to environment variable `PAC_INPUT_FOLDER`, `PAC_OUTPUT_FOLDER` or `./Output`. |
 
 ## Create Azure DevOps Pipelines or GitHub Workflows from Starter Pipelines.
 
-Starter Pipelines have been created to orchestrate the EPAC deployment steps listed above. The scripts `New-PipelinesFromStarterKit` create [Azure DevOps Pipelines or GitHub Workflows from the starter kit](operational-scripts-hydration-kit.md#create-azure-devops-pipeline-or-github-workflow). You select the type of pipeline to create, the branching flow to implement, and the ScriptType to use.
+Starter Pipelines have been created to orchestrate the EPAC deployment steps listed above. The script `new-pipelines-from-starter-kit.sh` creates [Azure DevOps Pipelines or GitHub Workflows from the starter kit](operational-scripts-hydration-kit.md#create-azure-devops-pipeline-or-github-workflow). You select the type of pipeline to create, the branching flow to implement, and the script type to use.
 - The starter kits support two branching/release strategies (`GitHub` and `Release`). More details on these branching flows refer to the [Branching Flow Guidance](ci-cd-branching-flows.md).
-- The recommended `ScriptType` is `module`, which utilizes the `EnterprisePolicyAsCode` Powershell module. For more details on EPAC installation options, please refer to the [Start Implementation](start-implementing.md/#install-powershell-and-epac) section.
 
 ### Azure DevOps Pipelines
 
 The following commands create Azure DevOps Pipelines from the starter kit; use one of the commands:
 
-```ps1
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\pipelines -PipelineType AzureDevOps -BranchingFlow GitHub -ScriptType script
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\pipelines -PipelineType AzureDevOps -BranchingFlow Release -ScriptType script
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\pipelines -PipelineType AzureDevOps -BranchingFlow GitHub -ScriptType module
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\pipelines -PipelineType AzureDevOps -BranchingFlow Release -ScriptType module
+```bash
+scripts/operations/new-pipelines-from-starter-kit.sh \
+    --starter-kit-folder ./StarterKit \
+    --pipelines-folder ./pipelines \
+    --pipeline-type AzureDevOps \
+    --branching-flow GitHub
+
+scripts/operations/new-pipelines-from-starter-kit.sh \
+    --starter-kit-folder ./StarterKit \
+    --pipelines-folder ./pipelines \
+    --pipeline-type AzureDevOps \
+    --branching-flow Release
 ```
 
 ### GitHub Workflows
 
 The following commands create GitHub Workflows from the starter kit; use one of the commands:
 
-```ps1
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\.github/workflows -PipelineType GitHubActions -BranchingFlow GitHub -ScriptType script
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\.github/workflows -PipelineType GitHubActions -BranchingFlow Release -ScriptType script
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\.github/workflows -PipelineType GitHubActions -BranchingFlow GitHub -ScriptType module
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\.github/workflows -PipelineType GitHubActions -BranchingFlow Release -ScriptType module
+```bash
+scripts/operations/new-pipelines-from-starter-kit.sh \
+    --starter-kit-folder ./StarterKit \
+    --pipelines-folder ./.github/workflows \
+    --pipeline-type GitHubActions \
+    --branching-flow GitHub
+
+scripts/operations/new-pipelines-from-starter-kit.sh \
+    --starter-kit-folder ./StarterKit \
+    --pipelines-folder ./.github/workflows \
+    --pipeline-type GitHubActions \
+    --branching-flow Release
 ```
 
 ## General Hardening Guidelines

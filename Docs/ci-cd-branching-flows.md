@@ -46,7 +46,7 @@ Once Development is completed, as noted above, the merge of the PR into the `mai
 
 EPAC can handle any flow you like. For `GitHub Flow`, the following variations are possible.
 
-- Adding a deployment plan from the feature branch to the production environment in step 3 above during the development process (see steps 1 through 3 in the diagram above) by adding a step using Build-DeploymentPlans.ps1. This is useful to test the deployment plan in the production environment before creating a PR. We recommend using a separate SPN for this step (job).
+- Adding a deployment plan from the feature branch to the production environment in step 3 above during the development process (see steps 1 through 3 in the diagram above) by adding a step using build-deployment-plans.sh. This is useful to test the deployment plan in the production environment before creating a PR. We recommend using a separate SPN for this step (job).
 - PR creation trigger for a CI/CD pipeline/action deploying the changes to an `epac-test` environment with the same steps as the deployment to `epac-dev` environment in steps 3 above.
 
 ## Advanced Deployment with Release Flow
@@ -74,7 +74,7 @@ In some cases, especially when using multiple EPAC Environments, it may be desir
 
 EPAC can handle any flow you like. For `Release Flow`, the following variations are possible.
 
-- Adding a deployment plan from the feature branch to the production environment in step 3 above during the development process (see steps 1 through 3 in the diagram above) by adding a step using Build-DeploymentPlans.ps1. This is useful to test the deployment plan in the production environment before creating a PR. We recommend using a separate SPN for this step (job).
+- Adding a deployment plan from the feature branch to the production environment in step 3 above during the development process (see steps 1 through 3 in the diagram above) by adding a step using build-deployment-plans.sh. This is useful to test the deployment plan in the production environment before creating a PR. We recommend using a separate SPN for this step (job).
 - PR creation trigger for a CI/CD pipeline/action deploying the changes to an `epac-test` environment with the same steps as the deployment to `epac-dev` environment in steps 3 above.
 
 ## Multiple Tenants

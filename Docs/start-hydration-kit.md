@@ -4,11 +4,11 @@ The EPAC Hydration Kit is an interactive installer designed to accelerate onboar
 
 **What you'll get:** A foundational EPAC implementation with starter policies & CI/CD pipelines.
 
-The `Install-HydrationEpac` command builds a basic EPAC implementation for local testing and provides the foundation for CI/CD deployment through starter pipelines.
+The `install-hydration-epac.sh` command builds a basic EPAC implementation for local testing and provides the foundation for CI/CD deployment through starter pipelines.
 
 ## Prerequisites
 
-- Review the [Overview and Prerequisites](./start-implementing.md) to ensure you are familiar with the core EPAC concepts, have the prerequisite software installed and have the required Azure permissions.
+- Review the [Overview and Prerequisites](./start-implementing.md) to ensure you are familiar with the core EPAC concepts, have the prerequisite software installed (bash, jq, az CLI) and have the required Azure permissions.
 - To run the Hydration Kit, permissions to create Management Groups at the **Tenant Root Level** is also required.
   - The `Management Group Contributor` built-in RBAC role contains the required permissions.
   - The Hydration Kit creates additional Management Groups for EPAC development.
@@ -17,13 +17,13 @@ The `Install-HydrationEpac` command builds a basic EPAC implementation for local
 
 ### Before You Begin
 
-1. **Connect to Azure:** Use `Connect-AzAccount` to authenticate to your Azure tenant
+1. **Connect to Azure:** Use `az login` to authenticate to your Azure tenant
 1. **Verify permissions:** Confirm you can create Management Groups at the tenant root level
 1. **Ensure `git` is installed:** The Hydration Kit uses `git` to download the EPAC StarterKit required for pipeline creation
 1. **Choose your location:** Decide where you want the EPAC files to be created locally
 1. **Choose your code execution source:**
-    1. *Script* based execution requires the EPAC Repo Scripts folder be downloaded and maintained locally
-    1. *Module* based execution requires installation of the EnterprisePolicyAsCode module locally at either user or machine scope
+    1. *Script* based execution requires the EPAC source repo to be cloned locally
+    1. *Module* based execution requires installation of the EPAC scripts to be available (from tarball or source)
     1. The Hydration Kit supports both methods, but it requires less steps to deploy using the Module execution method
 
 ## What the Hydration Kit Provides
@@ -47,20 +47,20 @@ The Hydration Kit guides you through the initial setup process for EPAC. Here's 
 
 Set the location where you want EPAC files to be created. This could be a simple local directory, or a locally cloned repository.
 
-```Powershell
-$myRepoRoot = "/Path/To/Local/EPAC/Repo"
-Set-Location $myRepoRoot
+```bash
+MY_REPO_ROOT="/path/to/local/epac/repo"
+cd "$MY_REPO_ROOT"
 ```
 
 ### \[OPTIONAL\] Download Code for Local Script Execution
 
-This is only necessary if you the organization has chosen to use local scripts, rather than the EnterprisePolicyAsCode module, for the deployment. This is common when code must be scanned and maintained locally for supply line security visibility for compliance requirements.
+This is only necessary if you the organization has chosen to use local scripts, rather than the EPAC module, for the deployment. This is common when code must be scanned and maintained locally for supply line security visibility for compliance requirements.
 
-```powershell
-$null = New-Item -ItemType Directory -Path ./temp
+```bash
+mkdir -p ./temp
 git clone https://github.com/Azure/enterprise-azure-policy-as-code.git ./temp
-Copy-Item ./temp/Scripts ./ -Recurse -Force
-Remove-Item ./temp -Recurse -Force
+#  cp -r ./temp/scripts ./
+#  rm -rf ./temp
 ```
 
 ### Identify Your Tenant Intermediate Root
@@ -69,11 +69,11 @@ Determine the **Tenant Intermediate Root** Management Group ID. This will be set
 
 ### Run the Hydration Kit
 
-Use the `Install-HydrationEpac` cmdlet to start the Hydration Kit Installer, specifying the `TenantIntermediateRoot`
+Use the `install-hydration-epac.sh` cmdlet to start the Hydration Kit Installer, specifying the `TenantIntermediateRoot`
 
-```PowerShell
-$tenantIntermediateRoot = "contoso" # Replace with your Management Group ID
-Install-HydrationEpac -TenantIntermediateRoot $tenantIntermediateRoot
+```bash
+tenantIntermediateRoot="contoso" # Replace with your Management Group ID
+scripts/hydration/install-hydration-epac.sh --tenant-intermediate-root $tenantIntermediateRoot
 ```
 
 > [!IMPORTANT]
@@ -135,7 +135,7 @@ The Hydration Kit can help you get started with some initial policies, as well a
 
 EPAC supports various options for running EPAC through CI/CD pipelines. Choose the DevOps approach that best fits your existing toolset:
 
-1. **Execution method:** Run EPAC via PowerShell Module (recommended) or source code
+1. **Execution method:** Run EPAC via installed scripts (recommended) or from source
 1. **Platform:** Select starter pipelines built for GitHub Actions or Azure DevOps Pipelines
 
 ## Current Limitations
@@ -149,10 +149,10 @@ The Hydration Kit provides a working foundation but has some limitations that ca
 
 Once the hydration kit is completed, you can test your deployment against the epac-dev Management Group hierarchy that was created as part of the deployment process.
 
-```PowerShell
-Build-DeploymentPlans  -PacEnvironmentSelector "epac-dev"
-Deploy-PolicyPlan -PacEnvironmentSelector "epac-dev"
-Deploy-RolesPlan -PacEnvironmentSelector "epac-dev"
+```bash
+scripts/deploy/build-deployment-plans.sh -p "epac-dev"
+scripts/deploy/deploy-policy-plan.sh -p "epac-dev"
+scripts/deploy/deploy-roles-plan.sh -p "epac-dev"
 ```
 
 ## Next Steps
@@ -171,7 +171,7 @@ The installer builds out the repo insofar as CLI based deployment using a highly
 
 ## Upcoming Roadmap Items
 
-### Install-HydrationEpac
+### install-hydration-epac.sh
 
 1. Add Sync-AlzPolicies
 1. Configure [Defender For Cloud Integration](./settings-dfc-assignments.md)
@@ -192,8 +192,8 @@ Each of these sets is broken up by API usage to accomplish the task. As each wil
         1. Provide baseline security configuration
         1. Populate main branch
 
-**The full list of available Hydration Kit commands can be retrieved by running the PowerShell below:**
+**The full list of available Hydration Kit scripts:**
 
-```PowerShell
-Get-Command -module EnterprisePolicyAsCode | Where-Object {$_.Name -like "*-Hydration*"}
+```bash
+ls scripts/hydration/
 ```
