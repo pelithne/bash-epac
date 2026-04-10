@@ -16,10 +16,12 @@ Creates a global-settings.jsonc file with a new GUID, managed identity location,
 and tenant information.
 
 Required arguments:
-  --location                Azure region for managed identities (e.g. NorthCentralUS)
+  --location                Azure region for managed identities (e.g. swedencentral)
   --tenant-id               Azure tenant ID (GUID)
-  --definitions-root-folder Path to definitions root folder
-  --deployment-root-scope   Root management group path
+
+Optional arguments:
+  --definitions-root-folder Path to definitions root folder (default: ./Definitions)
+  --deployment-root-scope   Root management group path (default: derived from tenant)
                             (/providers/Microsoft.Management/managementGroups/<name>)
 
 Options:
@@ -44,9 +46,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "$location" || -z "$tenant_id" || -z "$definitions_root" || -z "$deployment_root_scope" ]]; then
+if [[ -z "$location" || -z "$tenant_id" ]]; then
     epac_log_error "Missing required arguments. Use --help for usage."
     exit 1
+fi
+
+# Default definitions root folder
+if [[ -z "$definitions_root" ]]; then
+    definitions_root="./Definitions"
+fi
+
+# Default deployment root scope from tenant ID
+if [[ -z "$deployment_root_scope" ]]; then
+    deployment_root_scope="/providers/Microsoft.Management/managementGroups/${tenant_id}"
 fi
 
 # Remove trailing slash
@@ -58,10 +70,10 @@ if [[ "$deployment_root_scope" != /providers/Microsoft.Management/managementGrou
     exit 1
 fi
 
-# Validate definitions folder exists
+# Validate/create definitions folder
 if [[ ! -d "$definitions_root" ]]; then
-    epac_log_error "Definition path not found. Specify a valid definition folder path."
-    exit 1
+    mkdir -p "$definitions_root"
+    epac_log_info "Created definitions folder: $definitions_root"
 fi
 
 # Validate Azure location
