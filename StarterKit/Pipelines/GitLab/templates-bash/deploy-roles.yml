@@ -1,0 +1,29 @@
+spec:
+  inputs:
+    environment:
+
+---
+image: mcr.microsoft.com/azure-cli:latest
+
+stages:
+  - plan
+  - deployPolicy
+  - deployRoles
+
+deployRoles:
+  stage: deployRoles
+  id_tokens:
+    GITLAB_OIDC_TOKEN:
+      aud: api://AzureADTokenExchange
+  dependencies:
+    - plan
+  when:
+    manual
+  script:
+    - |
+      if [ ! -f "./Output/plans-$ENVIRONMENT/roles-plan.json" ]; then
+        echo "File not found, skipping the job."
+        exit 0
+      fi
+    - az login --service-principal -u "$EPAC_ROLES" --tenant "$AZURE_TENANT_ID" --federated-token "$GITLAB_OIDC_TOKEN" --allow-no-subscriptions > /dev/null 2>&1
+    - scripts/deploy/deploy-roles-plan.sh --pac-selector "$ENVIRONMENT" --definitions-root Definitions --input-folder "$PAC_OUTPUT_FOLDER"

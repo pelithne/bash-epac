@@ -1,0 +1,74 @@
+name: 'Reusable Workflow: Plan Exemptions Only'
+
+on:
+  workflow_call:
+    inputs:
+      pacEnvironmentSelector:
+        required: true
+        type: string
+      planGitHubEnvironment:
+        required: true
+        type: string
+      PAC_OUTPUT_FOLDER:
+        required: true
+        type: string
+      PAC_DEFINITIONS_FOLDER:
+        required: true
+        type: string
+    outputs:
+      deployPolicyChanges:
+        description: "The result of evaluating if a policy deployment is required"
+        value: ${{ jobs.plan.outputs.deployPolicyChanges }}
+      deployRoleChanges:
+        description: "The result of evaluating if a role deployment is required"
+        value: ${{ jobs.plan.outputs.deployRoleChanges }}
+
+env:
+  PAC_OUTPUT_FOLDER: ./Output
+  PAC_DEFINITIONS_FOLDER: ./Definitions
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.planGitHubEnvironment }}
+    outputs:
+      deployPolicyChanges: ${{ steps.detectPlan.outputs.deployPolicyChanges }}
+      deployRoleChanges: ${{ steps.detectPlan.outputs.deployRoleChanges }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: Plan Exemptions Only
+        run: |
+          scripts/deploy/build-deployment-plans.sh \
+            --pac-selector ${{ inputs.pacEnvironmentSelector }} \
+            --build-exemptions-only \
+            --devops-type github
+
+      - name: Detect Plan File
+        id: detectPlan
+        run: |
+          if [[ -d "$PAC_OUTPUT_FOLDER" ]]; then
+            echo "deployPolicyChanges=yes" >> "$GITHUB_OUTPUT"
+            if find "$PAC_OUTPUT_FOLDER" -name "roles-plan.json" -type f | grep -q .; then
+              echo "deployRoleChanges=yes" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "::notice title=Detect Plan::Plan not found. Nothing to deploy. Skipping remaining tasks and deploy jobs..."
+          fi
+
+      - name: Upload Deployment Plan as Artifact
+        if: steps.detectPlan.outputs.deployPolicyChanges == 'yes' || steps.detectPlan.outputs.deployRoleChanges == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "plans-${{ inputs.pacEnvironmentSelector }}"
+          path: ${{ env.PAC_OUTPUT_FOLDER }}
+          if-no-files-found: error

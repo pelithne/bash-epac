@@ -210,10 +210,10 @@ Rewrite 186 PowerShell files to Bash. The project uses Azure REST APIs extensive
 - [x] WI-12: Policy deployment (76 tests, 860 total)
 - [x] WI-13: Export operations (103 tests, 963 total)
 - [x] WI-14: Documentation generation (67 tests, 1030 total)
-- [ ] WI-15: Operational tools
-- [ ] WI-16: Scaffolding & new resource creation
-- [ ] WI-17: Hydration Kit
-- [ ] WI-18: Cloud Adoption Framework integration
+- [x] WI-15: Operational tools (86 tests, 1116 total)
+- [x] WI-16: Scaffolding & new resource creation (82 tests, 1198 total)
+- [x] WI-17: Hydration Kit (153 tests, 1351 total)
+- [x] WI-18: Cloud Adoption Framework integration (65 tests, 1416 total)
 - [ ] WI-19: CI/CD pipeline templates
 - [ ] WI-20: Build system & packaging
 - [ ] WI-21: StarterKit & examples updates
