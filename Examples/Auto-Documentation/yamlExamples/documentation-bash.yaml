@@ -1,0 +1,26 @@
+parameters:
+  - name: serviceConnection
+    type: string
+  - name: pacEnvironmentSelector
+    type: string
+  - name: definitionsRootFolder
+    type: string
+    default: Definitions
+
+steps:
+  - checkout: self
+    persistCredentials: true
+  - task: AzureCLI@2
+    name: documentation
+    displayName: Build Documentation
+    inputs:
+      azureSubscription: ${{ parameters.serviceConnection }}
+      scriptType: bash
+      scriptLocation: scriptPath
+      scriptPath: "scripts/operations/build-policy-documentation.sh"
+      arguments: >-
+        --pac-selector ${{ parameters.pacEnvironmentSelector }}
+        --non-interactive
+        --wiki-spn
+  - publish: "$(PAC_OUTPUT_FOLDER)"
+    artifact: "policy-documentation-${{ parameters.pacEnvironmentSelector }}"
