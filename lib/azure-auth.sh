@@ -136,6 +136,11 @@ epac_set_az_cloud_tenant_subscription() {
     echo "$account"
 }
 
+# Alias for backward compatibility
+epac_set_cloud_tenant_subscription() {
+    epac_set_az_cloud_tenant_subscription "$@"
+}
+
 # ─── Get access token for REST API calls ──────────────────────────────────────
 
 epac_get_access_token() {
@@ -273,12 +278,12 @@ epac_select_pac_environment() {
     tenant_id="$(echo "$pac_env" | jq -r '.tenantId')"
     deployment_root_scope="$(echo "$pac_env" | jq -r '.deploymentRootScope // empty')"
 
-    # Display selection
-    epac_write_section "PAC Environment Selected" 0
-    epac_write_status "Environment: ${pac_selector}" "success" 2
-    epac_write_status "Cloud: ${cloud}" "info" 2
-    epac_write_status "Tenant ID: ${tenant_id}" "info" 2
-    epac_write_status "Deployment Root Scope: ${deployment_root_scope}" "info" 2
+    # Display selection (to stderr so stdout stays clean for JSON return)
+    epac_write_section "PAC Environment Selected" 0 >&2
+    epac_write_status "Environment: ${pac_selector}" "success" 2 >&2
+    epac_write_status "Cloud: ${cloud}" "info" 2 >&2
+    epac_write_status "Tenant ID: ${tenant_id}" "info" 2 >&2
+    epac_write_status "Deployment Root Scope: ${deployment_root_scope}" "info" 2 >&2
 
     # Resolve folders
     output_folder="$(echo "$global_settings" | jq -r '.outputFolder')"
