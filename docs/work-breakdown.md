@@ -135,13 +135,14 @@ Rewrite 186 PowerShell files to Bash. The project uses Azure REST APIs extensive
 - Replaces: corresponding Operations/*.ps1 scripts
 - Branch: feature/wi-15-operations
 
-### WI-16: Scaffolding & new resource creation
+### WI-16: Scaffolding & new resource creation ✅
 - scripts/operations/new-epac-global-settings.sh
 - scripts/operations/new-epac-policy-assignment-definition.sh
 - scripts/operations/new-epac-policy-definition.sh
 - scripts/operations/new-pipelines-from-starter-kit.sh
 - scripts/operations/convert-markdown-github-alerts.sh
-- Replaces: New-EPAC*.ps1, New-PipelinesFromStarterKit.ps1
+- tests/test_scaffolding.sh — 82 tests (JSON generation, EPAC format conversion, pipeline copy, markdown alert conversion with round-trip)
+- Replaces: New-EPAC*.ps1, New-PipelinesFromStarterKit.ps1, Convert-MarkdownGitHubAlerts.ps1
 - Branch: feature/wi-16-scaffolding
 
 ### WI-17: Hydration Kit
