@@ -74,6 +74,11 @@ for f in "${_EPAC_LIB_DIR}"/exports/*.sh; do
     [[ -f "$f" ]] && source "$f"
 done
 
+# Layer 13: Documentation helpers (WI-14)
+for f in "${_EPAC_LIB_DIR}"/documentation/*.sh; do
+    [[ -f "$f" ]] && source "$f"
+done
+
 # ─── Startup banner (debug mode only) ────────────────────────────────────────
 
 epac_log_debug "EPAC bash libraries loaded from ${_EPAC_LIB_DIR}"
