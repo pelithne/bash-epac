@@ -69,6 +69,11 @@ for f in "${_EPAC_LIB_DIR}"/hydration/*.sh; do
     [[ -f "$f" ]] && source "$f"
 done
 
+# Layer 12: Export helpers (WI-13)
+for f in "${_EPAC_LIB_DIR}"/exports/*.sh; do
+    [[ -f "$f" ]] && source "$f"
+done
+
 # ─── Startup banner (debug mode only) ────────────────────────────────────────
 
 epac_log_debug "EPAC bash libraries loaded from ${_EPAC_LIB_DIR}"
