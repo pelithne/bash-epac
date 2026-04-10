@@ -62,7 +62,7 @@ During this process we will export the current Exemptions, and then add addition
     $exemptionCategory = "Waiver|Mitigated"
     $expiresOn = "YYYY-MM-DDTmm:hh:ssZ"
 
-    Set-AzPolicyExemptionEpac -Scope $scope -Name $name -DisplayName $displayName -Description $description -ExemptionCategory $exemptionCategory -ExpiresOn $expiresOn -PolicyAssignmentId $policyAssignmentId
+    scripts/deploy/set-az-policy-exemption.sh --scope "$scope" --name "$name" --display-name "$displayName" --description "$description" --exemption-category "$exemptionCategory" --expires-on "$expiresOn" --policy-assignment-id "$policyAssignmentId"
     ```
 
 1. Update Exemptions File
@@ -73,7 +73,7 @@ During this process we will export the current Exemptions, and then add addition
         $pacSelector = "pacSelectorName"
         $definitionsFolder = "./Definitions"
         $outputFolder = "./Output"
-        Get-AzExemptions `
+        scripts/operations/get-az-exemptions.sh \
             -PacEnvironmentSelector $pacSelector `
             -DefinitionsRootFolder $definitionsFolder `
             -OutputFolder $outputFolder `

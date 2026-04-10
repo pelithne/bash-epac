@@ -93,18 +93,18 @@ Previously, the `desiredState.deleteDfcSecurityAssignments` field (default `true
 - This behavior is now independent of the `desiredState.strategy` field. Therefore it will  delete DfC Security Policy Assignments at the subscription level, unless `desiredState.keepDfcSecurityAssignments` is set to `true`.
 - Assignments created by DfC when enrolling a subscription in a DfC workload protection plan are **never** deleted starting with v10.0.0
 
-### Build-PolicyDocumentation.ps1 ignores Policies with effect `Manual`
+### build-policy-documentation.sh ignores Policies with effect `Manual`
 
-- `Build-PolicyDocumentation.ps1` skips Policies with effect `Manual`. Using the switch parameter `-IncludeManualPolicies` overrides this behavior reverting to the previous behavior.
+- `build-policy-documentation.sh` skips Policies with effect `Manual`. Using the switch parameter `--include-manual-policies` overrides this behavior reverting to the previous behavior.
 
 ### Deprecated Operational Scripts
 
-EPAC had multiple operational scripts which are not Policy as Code related. These scripts are now deprecated and will be removed in a future release. The scripts have been moved to a new folder `Scripts-Deprecated` and are not included in the PowerShell module. The scripts are:
+EPAC had multiple operational scripts which are not Policy as Code related. These scripts are now deprecated and will be removed in a future release. The scripts have been moved to a new folder `scripts-deprecated` and are not included in the EPAC scripts. The scripts are:
 
-- `Get-AzMissingTags.ps1`
-- `Get-AzResourceTags.ps1`
-- `Get-AzStorageNetworkConfig.ps1`
-- `Get-AzUserRoleAssignments.ps1`
+- `get-az-missing-tags.sh (deprecated)`
+- `get-az-resource-tags.sh (deprecated)`
+- `get-az-storage-network-config.sh (deprecated)`
+- `get-az-user-role-assignments.sh (deprecated)`
 
 We recommend that you use [Azure Governance Visualizer (AzGovViz)](https://github.com/JulianHayward/Azure-MG-Sub-Governance-Reporting) for these tasks.
 

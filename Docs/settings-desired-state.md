@@ -101,7 +101,7 @@ In some organizations the lifecycle of different parts may be managed separately
 
 ### Using Advanced CI/CD Pipelines (Recommended)
 
-[Advanced CI/CD Pipelines with Release Flow](ci-cd-overview.md#advanced-cicd-with-release-flow) can be used to fast-track Exemptions while keeping a regular lifecycle for Definitions and Assignments. Script `Build-DeploymentPlans` has a parameter `BuildExemptionsOnly` to deploy only Exemptions.
+[Advanced CI/CD Pipelines with Release Flow](ci-cd-overview.md#advanced-cicd-with-release-flow) can be used to fast-track Exemptions while keeping a regular lifecycle for Definitions and Assignments. Script `build-deployment-plans.sh` has a parameter `--build-exemptions-only` to deploy only Exemptions.
 
 ### Using separate Repos
 

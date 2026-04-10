@@ -43,15 +43,15 @@ This section is retained from the previous documentation to enable you to contin
 ### Action Flow -- Legacy
 
 1. Changes are made to files in the Definitions folder (e.g. new policy definition/assignment, removing files) and pushed to GitHub
-2. The `Build Deployment Plan` action is triggered. This runs the `Build-DeploymentPlans` function against the environment specified in the `pacEnvironment` variable in `global-settings.jsonc`
+2. The `Build Deployment Plan` action is triggered. This runs the `build-deployment-plans.sh` script against the environment specified in the `pacEnvironment` variable in `global-settings.jsonc`
 3. If there are changes detected the plan is committed to a new branch and a pull request is created. A label of `PolicyDeployment` is attached and a reviewer is added.
 4. At this stage you can browse the plan created by the action before approving. It is important to not merge this branch as it will remove the `.gitignore` file from the base branch and will cause the `Output` folder to be permanently committed to the project.
 5. If the changes are ready to be deployed - the pull request must be approved.
 6. The approval action will start the `Deploy Policy Plan and Roles` workflow.
-7. The policy plan will be deployed using `Deploy-RolesPlan`. When this is complete one of two things can happen.
+7. The policy plan will be deployed using `deploy-roles-plan.sh`. When this is complete one of two things can happen.
     * If there are no role changes to be processed the PR is closed (not merged) and the branch containing the plan is deleted. (End of process)
     * If there are role changes a label of `RoleDeployment` is added - and the reviewer is removed and re-added. This triggers another review on the pipeline which must be approved before role changes are deployed.
-8. For role changes when the PR is approved again the same action runs - this time using the `Deploy-RolesPlan` for deployment.
+8. For role changes when the PR is approved again the same action runs - this time using the `deploy-roles-plan.sh` for deployment.
 9. When complete the PR is closed and the branch containing the plan is deleted.
 
 ### Setup in GitHub -- Legacy
@@ -83,4 +83,4 @@ To skip the workflow run add a file called `NO_ACTIONS` in the definitions folde
 
 ### Generating Build Results Only -- Legacy
 
-If you want to run just the `Build-DeploymentPlans` but not save the output - add a file called `NO_DEPLOY`. This will run the build step and then cancel the action. You can review the summary output by checking the logs in the cancelled action.
+If you want to run just the `build-deployment-plans.sh` but not save the output - add a file called `NO_DEPLOY`. This will run the build step and then cancel the action. You can review the summary output by checking the logs in the cancelled action.

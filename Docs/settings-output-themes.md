@@ -284,7 +284,7 @@ Configure display characters for different elements:
 
 ### Color Definitions
 
-Configure colors using PowerShell color names:
+Configure colors using color names:
 
 ```json
 "colors": {
@@ -323,7 +323,7 @@ For high contrast themes, add background colors:
 
 ### Supported Colors
 
-PowerShell console colors supported:
+Console colors supported:
 
 - **Basic**: Black, White, Gray, DarkGray
 - **Colors**: Red, DarkRed, Green, DarkGreen, Blue, DarkBlue

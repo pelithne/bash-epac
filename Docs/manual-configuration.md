@@ -10,7 +10,7 @@ This guide walks you through manually setting up EPAC when the Hydration Kit doe
 - Specific compliance or organizational constraints
 
 > [!TIP]
-> **Consider the Hydration Kit first:** Even for advanced scenarios, you might start with the Hydration Kit and then customize the generated configuration. This can save time and provide a solid foundation. If they Hydration Kit is lacking on specific functionality that prevents its use in your environment, please **[Open a GitHub Issue](https://github.com/Azure/enterprise-azure-policy-as-code/issues)** to provide feedback and feature requests.
+> **Consider the Hydration Kit first:** Even for advanced scenarios, you might start with the Hydration Kit and then customize the generated configuration. This can save time and provide a solid foundation. If the Hydration Kit is lacking on specific functionality that prevents its use in your environment, please **[Open a GitHub Issue](https://github.com/Azure/enterprise-azure-policy-as-code/issues)** to provide feedback and feature requests.
 
 ## Prerequisites
 
@@ -21,18 +21,18 @@ This guide walks you through manually setting up EPAC when the Hydration Kit doe
 
 Set the location where you want EPAC files to be created. This could be a simple local directory, or a locally cloned repository.
 
-```Powershell
-$myRepoRoot = "/Path/To/Local/EPAC/Repo"
-Set-Location $myRepoRoot
+```bash
+export MY_REPO_ROOT="/path/to/local/epac/repo"
+cd "$MY_REPO_ROOT"
 ```
 
 ### Create the Definitions Root folder
 Create a new EPAC `DefinitionsRootFolder` folder that contains the policy object subfolders and the `global-settings.jsonc` file. The `DefinitionsRootFolder` can have any name, however, we recommend `Definitions` and this is used through the documentation and starter kit.
 
-#### Option A: Using EPAC PowerShell Module (Recommended)
+#### Option A: Using EPAC Script (Recommended)
 
-```powershell
-New-HydrationDefinitionsFolder -DefinitionsRootFolder "Definitions"
+```bash
+scripts/hydration/new-hydration-definitions-folder.sh --definitions-root-folder Definitions
 ```
 #### Option B: Manual Creation:
 
@@ -70,31 +70,39 @@ Create custom [policy definitions](./policy-definitions.md), [policy set definit
 
 You can test your deployment against the epac-dev Management Group hierarchy that was created as part of the deployment process.
 
-```PowerShell
-Build-DeploymentPlans  -PacEnvironmentSelector "epac-dev"
-Deploy-PolicyPlan -PacEnvironmentSelector "epac-dev"
-Deploy-RolesPlan -PacEnvironmentSelector "epac-dev"
+```bash
+scripts/deploy/build-deployment-plans.sh -p epac-dev
+scripts/deploy/deploy-policy-plan.sh -p epac-dev
+scripts/deploy/deploy-roles-plan.sh -p epac-dev
 ```
 
 > [!NOTE]
 > Many scripts use parameters for input and output folders. They default to the current directory. We recommend that you do one of the following approaches instead of accepting the default to prevent your files being created in the wrong location:
 >
 >- [Preferred] Set the environment variables `PAC_DEFINITIONS_FOLDER`, `PAC_OUTPUT_FOLDER`, and `PAC_INPUT_FOLDER`.
->- [Alternative] Use the script parameters `-DefinitionsRootFolder`, `-OutputFolder`, and `-InputFolder`.
+>- [Alternative] Use the script parameters `--definitions-root-folder`, `--output-folder`, and `--input-folder`.
 
 ## Starter Kit Pipelines
 
 Create a basic pipeline from the starter kit for CI/CD integration. For detailed pipeline configuration, review the [CI/CD Overview](ci-cd-overview.md).
 
-### Using EPAC PowerShell Module (Recommended)
+### Using EPAC Scripts
 
 Run one of the following commands based on your pipeline tool of choice.
-```powershell
+```bash
 ### GitHub Actions
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\.github/workflows -PipelineType GitHubActions -BranchingFlow GitHub -ScriptType module
+scripts/operations/new-pipelines-from-starter-kit.sh \
+    --starter-kit-folder ./StarterKit \
+    --pipelines-folder ./.github/workflows \
+    --pipeline-type GitHubActions \
+    --branching-flow GitHub
 
 ### Azure DevOps
-New-PipelinesFromStarterKit -StarterKitFolder .\StarterKit -PipelinesFolder .\pipelines -PipelineType AzureDevOps -BranchingFlow GitHub -ScriptType module
+scripts/operations/new-pipelines-from-starter-kit.sh \
+    --starter-kit-folder ./StarterKit \
+    --pipelines-folder ./pipelines \
+    --pipeline-type AzureDevOps \
+    --branching-flow GitHub
 ```
 
 ## Next Steps

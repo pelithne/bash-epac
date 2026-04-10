@@ -1,6 +1,10 @@
-# Enterprise Azure Policy as Code
+# Enterprise Azure Policy as Code (Bash)
 
-This repository contains the source code for the Enterprise Azure Policy as Code (EPAC) solution. EPAC is a solution that allows you to manage Azure Policy as code in a git repository. For an overview see the [EPAC documentation](https://aka.ms/epac).
+This repository contains the Bash implementation of the Enterprise Azure Policy as Code (EPAC) solution. EPAC allows you to manage Azure Policy as code in a git repository using Bash scripts with Azure CLI and jq.
+
+**Requirements:** Bash 5.1+, Azure CLI 2.50+, jq 1.6+, curl, git
+
+For an overview see the [EPAC documentation](https://aka.ms/epac).
 
 ## Contributing
 

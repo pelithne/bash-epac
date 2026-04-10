@@ -16,7 +16,7 @@ There are several different ways that policies that affect change can be deploye
     1. Considerations:
         1. Much faster, requiring little planning
         1. Will not update new deployments, but allows remediation of existing deployments as approval is received
-        1. New-AzRemediationTasks **will** by default enforce policyAssignments with the *DoNotEnforce* configuration. It is recommended to either use the switch parameter `-OnlyDefaultEnforcementMode`, have these policyAssignments removed or set to default enforcement before that pipeline is enabled
+        1. new-az-remediation-tasks.sh **will** by default enforce policyAssignments with the *DoNotEnforce* configuration. It is recommended to either use the switch parameter `--only-default-enforcement-mode`, have these policyAssignments removed or set to default enforcement before that pipeline is enabled
 1. Use of Effect *Override* functionality
     1. Override can be set to any Effect that is supported by that policy
     1. When overriding a policySet, the policyDefinitionReferenceId will be used to identify which policies receive audit vs auditIfNotExist effect if both exist
@@ -25,13 +25,13 @@ There are several different ways that policies that affect change can be deploye
         1. Much more granular control, requiring review of available effects and generating a list of overrides
         1. Provides compliance data
         1. Remediation tasks can be executed in this configuration
-        1. New-AzRemediationTasks **will** enforce policyAssignments with the *Override* configuration, and it is recommended that the override be removed, and actual effect parameters be used, before that pipeline is enabled
+        1. new-az-remediation-tasks.sh **will** enforce policyAssignments with the *Override* configuration, and it is recommended that the override be removed, and actual effect parameters be used, before that pipeline is enabled
 
 ## Updating Security Posture
 
 The objective during this process is to reach a new, more secure, steady state. To achieve this, incremental change is generally preferred as testing workloads in the new security framework can be time consuming, and rollbacks should be avoided whenever possible. This is not the time to implement a pipeline that will update the entire environment at once as this tends to cause operational challenges, and instead workloads should be targeted for prioritized changes at a pace that can be managed by the local teams.
 
-The EPAC cmdlet New-AzRemediationTasks is written to leverage the EPAC system to automate enforcement of as many as all of the policyAssignments that exist in EPAC in a single line of code. While this is extremely powerful, it is intended to be automation that leverages the native [Start-AzPolicyRemediation](https://learn.microsoft.com/en-us/powershell/module/az.policyinsights/start-azpolicyremediation) cmdlet at Enterprise Scale. If this scale is not desired, it is recommended to simply use the Start-AzPolicyRemediation cmdlet from the [Az](https://www.powershellgallery.com/packages/Az).PolicyInsights module to accomplish this goal until a steady state can be reached for a given assignment, which should at that time be transitioned to the Steady State procedure below.
+The EPAC cmdlet new-az-remediation-tasks.sh is written to leverage the EPAC system to automate enforcement of as many as all of the policyAssignments that exist in EPAC in a single line of code. While this is extremely powerful, it is intended to be automation that leverages the native [az policy remediation create](https://learn.microsoft.com/en-us/powershell/module/az.policyinsights/start-azpolicyremediation) cmdlet at Enterprise Scale. If this scale is not desired, it is recommended to simply use the az policy remediation create cmdlet from the [Az](https://www.powershellgallery.com/packages/Az).PolicyInsights module to accomplish this goal until a steady state can be reached for a given assignment, which should at that time be transitioned to the Steady State procedure below.
 
 While this does not take advantage of EPAC's global-settings files to auto-complete many of the fields, it does offer options to reduce the scope that are appealing at this point in the process. As an alternative, if you wish to leverage EPAC, consider a ***temporary*** pacSelector in the global-settings file at the scope that you wish to affect. This can leverage remediation deployments at a scope without affecting the rest of your CI/CD process.
 
@@ -49,7 +49,7 @@ While all processes should be optimized for the organization, a basic workflow t
     1. Update the environment specific parameters that will be enforced, but the Effect settings can be ignored for now
     1. Set `enforcementMode: 'DoNotEnforce'` for the Assignments
 1. Initiate Steady State Preparation Workstreams:
-    1. Use Start-AzPolicyRemediation to update the environment incrementally to reach the desired security posture
+    1. Use az policy remediation create to update the environment incrementally to reach the desired security posture
     1. Review and update Effect parameters from Default values where desired on these policyAssignments
 
 ## Enforcing Security Posture
@@ -58,7 +58,7 @@ When this is enabled, Azure Resource Manager Configuration is being managed at o
 
 The objective at this point is to reduce the administration teams' effort to correct deployments that do not meet security standards outlined by the company by maintaining the configuration proactively, which is to say without prompting from human administrators to do so. While this *can* be a manual task, the EPAC CI/CD Pipeline for Remediation provided in the StarterKit should be leveraged for this in order to reduce the effort of the administration team.
 
-While Infrastructure as Code is an excellent first layer, the second layer in a Defense In Depth model is to enforce this. In Azure Resource Manager, we use Azure Policy Remediation Tasks to accomplish this. Whereas Start-AzPolicyRemediation does allow very targeted deployments, EPAC seeks to take corrective action in broad swaths using the security structure that has been implemented. To this end, the cmdlet New-AzRemediationTasks was created, and can be used in a pipeline to remediate all policyAssignments (that have that capability) in a single pipeline action that should be scheduled with a cron trigger.
+While Infrastructure as Code is an excellent first layer, the second layer in a Defense In Depth model is to enforce this. In Azure Resource Manager, we use Azure Policy Remediation Tasks to accomplish this. Whereas az policy remediation create does allow very targeted deployments, EPAC seeks to take corrective action in broad swaths using the security structure that has been implemented. To this end, the cmdlet new-az-remediation-tasks.sh was created, and can be used in a pipeline to remediate all policyAssignments (that have that capability) in a single pipeline action that should be scheduled with a cron trigger.
 
 Once the *Updating Security Posture* Workstreams above are complete, it is time to move on into the upper tiers of CMM for ARM Governance, congratulations! The environment will be largely self-correcting after this is complete.
 

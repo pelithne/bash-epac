@@ -1,6 +1,6 @@
 ![EPAC](Images/epac_banner_thin.svg)
 
-Enterprise Azure Policy as Code (EPAC for short) is a number of PowerShell scripts which can be used in CI/CD based system or a semi-automated use to deploy Policies, Policy Sets, Policy Assignments, Policy Exemptions and Role Assignments. It also contains operational scripts to simplify operational tasks.
+Enterprise Azure Policy as Code (EPAC for short) is a collection of Bash scripts which can be used in CI/CD based systems or semi-automated deployments to manage Policies, Policy Sets, Policy Assignments, Policy Exemptions and Role Assignments. It also contains operational scripts to simplify operational tasks.
 
 ## Latest Updates
 
@@ -31,7 +31,7 @@ For all EPAC changes and newest updates, please visit our [GitHub Releases Page]
 - Single and multi-tenant policy deployment
 - Easy CI/CD Integration with any CI/CD tool
 - Extract existing Policy resources from an environment
-- PowerShell Module or consume source code from GitHub
+- Install from tarball or consume source code from GitHub
 - Deployment scripts to deploy Policy resources and Role Assignments
 - Deployments are sequenced based on the dependencies between the different Policy resources
 - Operational scripts to simplify operational tasks
@@ -60,13 +60,12 @@ EPAC is designed for medium and large organizations with a larger number of Poli
 - [GitHub Issues](https://github.com/Azure/enterprise-azure-policy-as-code/issues)
 - [Starter Kit](https://github.com/Azure/enterprise-azure-policy-as-code/tree/main/StarterKit)
 - [Hydration Kit](start-hydration-kit.md)
-- [Enterprise Policy as Code PowerShell Module](https://www.powershellgallery.com/packages/EnterprisePolicyAsCode)
 - [Azure Enterprise Policy as Code – A New Approach](https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/azure-enterprise-policy-as-code-a-new-approach/ba-p/3607843)
 - [Azure Enterprise Policy as Code – Azure Landing Zones Integration](https://techcommunity.microsoft.com/t5/core-infrastructure-and-security/azure-enterprise-policy-as-code-azure-landing-zones-integration/ba-p/3642784)
 
 ## Deployment Scripts
 
-Three deployment scripts plan a deployment, deploy Policy resources, and Role Assignments respectively as shown in the following diagram. The solution consumes definition files (JSON and/or CSV files). The planning script (`Build-DeploymentPlans`) creates plan files (`policy-plan.json` and `roles-plan.json`) to be consumed by the two deployment scripts (`Deploy-PolicyPlan` and `Deploy-RolesPlan`). The scripts require `Reader`, `Resource Policy Contributor` and `Role Based Access Control Administrator` privileges respectively as indicated in blue text in the diagram. The diagram also shows the usual approval gates after each step/script for prod deployments.
+Three deployment scripts plan a deployment, deploy Policy resources, and Role Assignments respectively as shown in the following diagram. The solution consumes definition files (JSON and/or CSV files). The planning script (`build-deployment-plans.sh`) creates plan files (`policy-plan.json` and `roles-plan.json`) to be consumed by the two deployment scripts (`deploy-policy-plan.sh` and `deploy-roles-plan.sh`). The scripts require `Reader`, `Resource Policy Contributor` and `Role Based Access Control Administrator` privileges respectively as indicated in blue text in the diagram. The diagram also shows the usual approval gates after each step/script for prod deployments.
 
 ![image.png](Images/epac-deployment-scripts.png)
 
@@ -96,22 +95,22 @@ To opt-out of this tracking, we have included a setting in `global-settings.json
 
 If you are happy with leaving telemetry tracking enabled, no changes are required.
 
-### Module PID Value Mapping
+### Script PID Value Mapping
 
-The following is the unique IDs (also known as PIDs) used in each of the modules:
+The following is the unique IDs (also known as PIDs) used in each of the scripts:
 
-| Function Name | PID |
+| Script Name | PID |
 |:------------|:----|
-| `Build-DeploymentPlans` | `3c88f740-55a8-4a96-9fba-30a81b52151a` |
-| `Deploy-PolicyPlan` | `fe9ff1e8-5521-4b9d-ab1d-84e15447565e` |
-| `Deploy-RolesPlan` | `cf031290-b7d4-48ef-9ff5-4dcd7bff8c6c` |
-| `Build-PolicyDocumentation` | `2dc29bae-2448-4d7f-b911-418421e83900` |
-| `New-AzRemediationTasks` | `6f4dcbef-f6e2-4c29-ba2a-eef748d88157` |
-| `Export-AzPolicyResources` | `dc5b73fd-e93c-40ca-8fef-976762d1d30` |
-| `Export-NonComplianceReports` | `f464b017-898b-4156-9da5-af932831fa2f` |
-| `Get-AzExemptions` | `3f02e7d5-1cf5-490a-a95c-3d49f0673093` |
-| `New-AzPolicyReaderRole` | `f4b5b7ac-70b4-40fc-836f-585791aa83e7` |
-| `Sync-ALZPolicyFromLibrary` | `adaa7564-1962-46e6-92b4-735e91f76d43` |
+| `build-deployment-plans.sh` | `3c88f740-55a8-4a96-9fba-30a81b52151a` |
+| `deploy-policy-plan.sh` | `fe9ff1e8-5521-4b9d-ab1d-84e15447565e` |
+| `deploy-roles-plan.sh` | `cf031290-b7d4-48ef-9ff5-4dcd7bff8c6c` |
+| `build-policy-documentation.sh` | `2dc29bae-2448-4d7f-b911-418421e83900` |
+| `new-az-remediation-tasks.sh` | `6f4dcbef-f6e2-4c29-ba2a-eef748d88157` |
+| `export-az-policy-resources.sh` | `dc5b73fd-e93c-40ca-8fef-976762d1d30` |
+| `export-non-compliance-reports.sh` | `f464b017-898b-4156-9da5-af932831fa2f` |
+| `get-az-exemptions.sh` | `3f02e7d5-1cf5-490a-a95c-3d49f0673093` |
+| `new-az-policy-reader-role.sh` | `f4b5b7ac-70b4-40fc-836f-585791aa83e7` |
+| `sync-alz-policy-from-library.sh` | `adaa7564-1962-46e6-92b4-735e91f76d43` |
 
 ## Support
 

@@ -37,15 +37,16 @@ You should understand these Azure concepts:
 
 Install the following software before proceeding:
 
-1. **[PowerShell 7.4 or higher](https://learn.microsoft.com/en-us/powershell/scripting/install/installing-powershell)**
-2. **[Az PowerShell module](https://learn.microsoft.com/en-us/powershell/azure/install-azure-powershell)**
-3. **[EnterprisePolicyAsCode PowerShell Module](https://www.powershellgallery.com/packages/EnterprisePolicyAsCode)**
+1. **[Bash 5.1 or higher](https://www.gnu.org/software/bash/)** (included in most Linux distributions and macOS via Homebrew)
+2. **[Azure CLI 2.50.0 or higher](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli)**
+3. **[jq 1.6 or higher](https://jqlang.github.io/jq/download/)** for JSON processing
+4. **[curl](https://curl.se/)** and **[git](https://git-scm.com/)**
 
 > [!NOTE]
-> **Alternative installation:**  It is recommended to run EPAC using the `EnterprisePolicyAsCode` PowerShell Module, however, if you cannot use the PowerShell Gallery Module, you can run EPAC directly from source code. See [Forking the GitHub Repo](start-forking-github-repo.md) for details.
+> **Installation:** Install EPAC from a release tarball using the included `install.sh` script, or run directly from a cloned repository. See [Forking the GitHub Repo](start-forking-github-repo.md) for details on running from source.
 
 > [!NOTE]
-> **Prerelease versions:** Experimental features may be available as prerelease versions. Use `Install-Module -AllowPrerelease` to access these, but note they are not supported for production use and may introduce breaking changes.
+> You can verify your system meets the requirements by running `install.sh --check-only`.
 
 ### Azure Permissions
 
@@ -182,7 +183,7 @@ DeployIfNotExists (DINE) policies require a managed identity to function. If you
 ```
 
 > [!NOTE]
-> EPAC provides the ability to specify the location individually on each policy assignment. The location specified in the `pacEnvironment` is a default location incase one is not specified in the assignment.
+> EPAC provides the ability to specify the location individually on each policy assignment. The location specified in the `pacEnvironment` is a default location in case one is not specified in the assignment.
 
 ### Multi-Tenant Capabilities
 
@@ -281,6 +282,6 @@ Start with the **Hydration Kit** as you can always customize the generated confi
 
 If you encounter issues during implementation:
 
-- **Run scripts interactively** to see detailed output
-- **[Debug in VS Code](https://learn.microsoft.com/en-us/powershell/scripting/dev-cross-plat/vscode/using-vscode?view=powershell-7.3)** for step-by-step troubleshooting
+- **Run scripts with `-x` flag** to see detailed output: `bash -x script.sh`
+- **[Debug in VS Code](debugging.md)** for step-by-step troubleshooting
 - **[Open a GitHub Issue](https://github.com/Azure/enterprise-azure-policy-as-code/issues)** for community support
