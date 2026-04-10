@@ -114,14 +114,15 @@ Rewrite 186 PowerShell files to Bash. The project uses Azure REST APIs extensive
 - tests/test_exports.sh: 103 tests, 963 total
 - Branch: feature/wi-13-exports (commit d055f9f)
 
-### WI-14: Documentation generation
-- scripts/operations/build-policy-documentation.sh
-- Policy set and assignment documentation
-- Markdown/CSV output generation
+### WI-14: Documentation generation ✅
+- lib/documentation/doc-policy-sets.sh (~480 lines) - Markdown/CSV/compliance CSV/JSONC/ADO Wiki
+- lib/documentation/doc-assignments.sh (~450 lines) - Cross-env combining, dedup, sub-pages
+- scripts/operations/build-policy-documentation.sh (~300 lines) - CLI orchestrator
+- tests/test_documentation.sh: 67 tests, 1030 total
 - Replaces: Build-PolicyDocumentation.ps1, Out-DocumentationFor*.ps1, Write-AssignmentDetails.ps1
-- Branch: feature/wi-14-documentation
+- Branch: feature/wi-14-documentation (commit 4b92606)
 
-### WI-15: Operational tools
+### WI-15: Operational tools ✅
 - scripts/operations/new-az-remediation-tasks.sh
 - scripts/operations/export-non-compliance-reports.sh
 - scripts/operations/get-az-exemptions.sh
@@ -129,6 +130,8 @@ Rewrite 186 PowerShell files to Bash. The project uses Azure REST APIs extensive
 - scripts/operations/new-az-policy-reader-role.sh
 - scripts/operations/new-azure-devops-bug.sh
 - scripts/operations/new-github-issue.sh
+- tests/test_operations.sh — 86 tests (collation, resource ID parsing, CSV generation, HTML tables, JSON construction, arg validation)
+- Bugs found and fixed: jq array-in-array for resourceQualifier parsing, jq pipe precedence in csv_esc chains
 - Replaces: corresponding Operations/*.ps1 scripts
 - Branch: feature/wi-15-operations
 
@@ -205,7 +208,7 @@ Rewrite 186 PowerShell files to Bash. The project uses Azure REST APIs extensive
 - [x] WI-11: Exemptions & deployment plan orchestration (86 tests, 784 total)
 - [x] WI-12: Policy deployment (76 tests, 860 total)
 - [x] WI-13: Export operations (103 tests, 963 total)
-- [ ] WI-14: Documentation generation
+- [x] WI-14: Documentation generation (67 tests, 1030 total)
 - [ ] WI-15: Operational tools
 - [ ] WI-16: Scaffolding & new resource creation
 - [ ] WI-17: Hydration Kit
