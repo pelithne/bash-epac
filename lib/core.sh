@@ -72,6 +72,10 @@ epac_log_info() {
     _epac_should_log "info" && echo "$*" >&2 || true
 }
 
+epac_log_success() {
+    _epac_should_log "info" && echo -e "\033[32m$*\033[0m" >&2 || true
+}
+
 epac_log_warning() {
     _epac_should_log "warning" && echo "[WARNING] $*" >&2 || true
 }
