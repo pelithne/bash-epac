@@ -185,9 +185,11 @@ epac_out_policy_exemptions() {
 
     # Sort metadata keys
     exemptions_json="$(echo "$exemptions_json" | jq '
-        [.[] | .metadata = (.metadata | to_entries | sort_by(.key) | from_entries)
-             | if .metadata.epacMetadata then
-                 .metadata.epacMetadata = (.metadata.epacMetadata | to_entries | sort_by(.key) | from_entries)
+        [.[] | if .metadata then
+                 .metadata = (.metadata | to_entries | sort_by(.key) | from_entries)
+                 | if .metadata.epacMetadata then
+                     .metadata.epacMetadata = (.metadata.epacMetadata | to_entries | sort_by(.key) | from_entries)
+                   else . end
                else . end
         ]
     ')"

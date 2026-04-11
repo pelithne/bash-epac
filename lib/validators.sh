@@ -32,99 +32,27 @@ epac_deep_equal() {
     local a="$1"
     local b="$2"
 
-    # Handle null/empty equivalence
-    local a_null b_null
-    a_null="$(_is_null_or_empty_val "$a")"
-    b_null="$(_is_null_or_empty_val "$b")"
+    # Fast path: string-identical (covers most cases in tree building)
+    [[ "$a" == "$b" ]] && return 0
 
-    if [[ "$a_null" == "true" && "$b_null" == "true" ]]; then
+    # Handle null/empty equivalence
+    if [[ -z "$a" || "$a" == "null" ]] && [[ -z "$b" || "$b" == "null" ]]; then
         return 0
     fi
-    if [[ "$a_null" == "true" || "$b_null" == "true" ]]; then
+    if [[ -z "$a" || "$a" == "null" || -z "$b" || "$b" == "null" ]]; then
         return 1
     fi
 
-    # Get types
-    local ta tb
-    ta="$(echo "$a" | jq -r 'type' 2>/dev/null)" || ta="string"
-    tb="$(echo "$b" | jq -r 'type' 2>/dev/null)" || tb="string"
-
-    # If either is an array, compare as arrays (order-independent)
-    if [[ "$ta" == "array" || "$tb" == "array" ]]; then
-        # Coerce to arrays if needed
-        [[ "$ta" != "array" ]] && a="$(jq -n --argjson v "$a" '[$v]')"
-        [[ "$tb" != "array" ]] && b="$(jq -n --argjson v "$b" '[$v]')"
-
-        local len_a len_b
-        len_a="$(echo "$a" | jq 'length')"
-        len_b="$(echo "$b" | jq 'length')"
-        [[ "$len_a" != "$len_b" ]] && return 1
-
-        # Order-independent: for each item in a, find a match in b
-        local matched_indices=""
-        local i=0
-        while [[ $i -lt $len_a ]]; do
-            local item_a
-            item_a="$(echo "$a" | jq --argjson i "$i" '.[$i]')"
-            local found="false"
-            local j=0
-            while [[ $j -lt $len_b ]]; do
-                # Skip already matched
-                if echo "$matched_indices" | grep -qw "$j"; then
-                    j=$((j + 1))
-                    continue
-                fi
-                local item_b
-                item_b="$(echo "$b" | jq --argjson j "$j" '.[$j]')"
-                if epac_deep_equal "$item_a" "$item_b"; then
-                    matched_indices+=" $j"
-                    found="true"
-                    break
-                fi
-                j=$((j + 1))
-            done
-            [[ "$found" != "true" ]] && return 1
-            i=$((i + 1))
-        done
-        return 0
-    fi
-
-    # Both are objects
-    if [[ "$ta" == "object" && "$tb" == "object" ]]; then
-        # Gather all unique keys (case-insensitive merge)
-        local keys_a keys_b
-        keys_a="$(echo "$a" | jq -r 'keys[]')"
-        keys_b="$(echo "$b" | jq -r 'keys[]')"
-
-        local all_keys
-        all_keys="$(printf '%s\n%s' "$keys_a" "$keys_b" | sort -uf)"
-
-        while IFS= read -r key; do
-            [[ -z "$key" ]] && continue
-            # Case-insensitive key lookup
-            local val_a val_b
-            val_a="$(echo "$a" | jq --arg k "$key" '
-                . as $obj | (keys[] | select(ascii_downcase == ($k | ascii_downcase))) as $found | $obj[$found] // null
-            ' 2>/dev/null)"
-            val_b="$(echo "$b" | jq --arg k "$key" '
-                . as $obj | (keys[] | select(ascii_downcase == ($k | ascii_downcase))) as $found | $obj[$found] // null
-            ' 2>/dev/null)"
-
-            if ! epac_deep_equal "$val_a" "$val_b"; then
-                return 1
-            fi
-        done <<< "$all_keys"
-        return 0
-    fi
-
-    # Primitive comparison — use jq == (handles number/string/bool)
+    # Single jq call: normalize both values (sort keys recursively) and compare
     local eq
-    eq="$(jq -n --argjson a "$a" --argjson b "$b" 'if $a == $b then "true" else "false" end' 2>/dev/null)"
-    [[ "$eq" == '"true"' ]] && return 0
-
-    # Try string comparison as fallback
-    [[ "$a" == "$b" ]] && return 0
-
+    eq="$(jq -n --argjson a "$a" --argjson b "$b" '
+        def normalize:
+            if type == "object" then to_entries | sort_by(.key) | map(.value |= normalize) | from_entries
+            elif type == "array" then map(normalize)
+            else . end;
+        ($a | normalize) == ($b | normalize)
+    ' 2>/dev/null)" || { return 1; }
+    [[ "$eq" == "true" ]] && return 0
     return 1
 }
 

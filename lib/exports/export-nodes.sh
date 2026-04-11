@@ -215,13 +215,14 @@ epac_merge_export_node_child() {
 
     local parent_json
     parent_json="$(cat "$parent_file")"
-    local children_count
-    children_count="$(echo "$parent_json" | jq '.children | length')"
+
+    # Extract all children file paths at once
+    local -a child_files
+    mapfile -t child_files < <(echo "$parent_json" | jq -r '.children[]?' 2>/dev/null)
 
     local i=0
-    while [[ $i -lt $children_count ]]; do
-        local child_file
-        child_file="$(echo "$parent_json" | jq -r ".children[$i]")"
+    for child_file in "${child_files[@]}"; do
+        [[ -z "$child_file" ]] && continue
         local child_json
         child_json="$(cat "$child_file")"
         local child_value
@@ -291,7 +292,6 @@ epac_merge_export_node_child() {
             echo "$child_file"
             return
         fi
-        ((i++))
     done
 
     # No match found — create new child node
@@ -315,22 +315,22 @@ epac_set_export_node() {
     local properties_json="$4"      # JSON object of all properties
     local current_index="${5:-0}"
 
-    local property_name
-    property_name="$(echo "$property_names_json" | jq -r ".[$current_index]")"
-    local property_value
-    property_value="$(echo "$properties_json" | jq --arg pn "$property_name" '.[$pn]')"
+    # Extract all property names as array once
+    local -a prop_names
+    mapfile -t prop_names < <(echo "$property_names_json" | jq -r '.[]')
+    local total=${#prop_names[@]}
 
-    # Merge/create child for this property
-    local this_node_file
-    this_node_file="$(epac_merge_export_node_child "$parent_file" "$pac_selector" "$property_name" "$property_value")"
+    # Iterate instead of recursing
+    local i=$current_index
+    local current_parent="$parent_file"
+    while [[ $i -lt $total ]]; do
+        local pn="${prop_names[$i]}"
+        local pv
+        pv="$(echo "$properties_json" | jq --arg pn "$pn" '.[$pn]')"
 
-    # Recurse for remaining properties
-    local next_index=$((current_index + 1))
-    local total
-    total="$(echo "$property_names_json" | jq 'length')"
-    if [[ $next_index -lt $total ]]; then
-        epac_set_export_node "$this_node_file" "$pac_selector" "$property_names_json" "$properties_json" "$next_index"
-    fi
+        current_parent="$(epac_merge_export_node_child "$current_parent" "$pac_selector" "$pn" "$pv")"
+        i=$((i + 1))
+    done
 }
 
 # ─── Merge-ExportNodeAncestors equivalent ───────────────────────────────────
@@ -377,7 +377,7 @@ epac_merge_export_node_ancestors() {
         if $is_match; then
             return 0
         fi
-        ((j++))
+        j=$((j + 1))
     done
 
     # New value — add to cluster and remove from parent (no longer unique)
@@ -458,7 +458,7 @@ epac_export_assignment_node() {
         else
             remaining_names="$(echo "$remaining_names" | jq --arg pn "$pn" '. += [$pn]')"
         fi
-        ((i++))
+        i=$((i + 1))
     done
 
     # Process children with remaining properties
@@ -486,7 +486,7 @@ epac_export_assignment_node() {
                 child_node="$(jq -n --arg nn "/child-$ci" '{nodeName: $nn}')"
                 child_node="$(epac_export_assignment_node "$child_file" "$child_node" "$remaining_names")"
                 children_array="$(echo "$children_array" | jq --argjson cn "$child_node" '. += [$cn]')"
-                ((ci++))
+                ci=$((ci + 1))
             done <<< "$(echo "$tree_json" | jq -r '.children[]')"
             assignment_node="$(echo "$assignment_node" | jq --argjson ch "$children_array" '.children = $ch')"
         fi

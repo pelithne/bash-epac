@@ -211,13 +211,13 @@ if [[ "$build_any" == "true" ]]; then
     [[ "$build_policy_assignments" == "true" ]] && local_skip_roles="false"
 
     epac_write_section "Fetching Deployed Policy Resources" 0
-    deployed_resources="$(epac_get_az_policy_resources "$pac_environment" "$scope_table" "$local_skip_exemptions" "$local_skip_roles")"
+    deployed_resources="$(epac_get_policy_resources "$pac_environment" "$scope_table" "$local_skip_exemptions" "$local_skip_roles")"
 
     # Extract deployed resource sections
     deployed_policy_defs="$(echo "$deployed_resources" | jq '.policydefinitions // {managed:{},readOnly:{},all:{}}')"
     deployed_policy_set_defs="$(echo "$deployed_resources" | jq '.policysetdefinitions // {managed:{},readOnly:{},all:{}}')"
     deployed_assignments="$(echo "$deployed_resources" | jq '.policyassignments // {managed:{},readOnly:{}}')"
-    deployed_exemptions="$(echo "$deployed_resources" | jq '.policyExemptions // {managed:{},readOnly:{}}')"
+    deployed_exemptions="$(echo "$deployed_resources" | jq '.policyexemptions // {managed:{},readOnly:{}}')"
     deployed_role_assignments="$(echo "$deployed_resources" | jq '.roleAssignmentsByPrincipalId // {}')"
 
     # Pre-populate role IDs from read-only policy definitions
