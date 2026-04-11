@@ -47,7 +47,7 @@ epac_search_az_graph() {
     while true; do
         # Build request body
         local body
-        body="$(jq -n --arg q "$query" --argjson top "$progress_increment" '{query: $q, options: {$top: $top}}')"
+        body="$(jq -n --arg q "$query" --argjson top "$progress_increment" '{query: $q, options: {"$top": $top}}')"
 
         # Add skip token if continuing pagination
         if [[ -n "$skip_token" ]]; then
@@ -115,10 +115,10 @@ epac_search_az_graph() {
                     [$cols | to_entries[] | {key: .value.name, value: $row[.key]}] | from_entries
                 ]
             ')"
-            collected="$(jq -n --argjson c "$collected" --argjson r "$rows" '$c + $r')"
+            collected="$(printf '%s\n%s' "$collected" "$rows" | jq -s '.[0] + .[1]')"
             total_count=$((total_count + $(echo "$rows" | jq 'length')))
         elif [[ "$data_type" == "array" ]]; then
-            collected="$(jq -n --argjson c "$collected" --argjson d "$data" '$c + $d')"
+            collected="$(printf '%s\n%s' "$collected" "$data" | jq -s '.[0] + .[1]')"
             total_count=$((total_count + $(echo "$data" | jq 'length')))
         fi
 
@@ -542,13 +542,13 @@ epac_build_scope_table() {
     case "$scope_type" in
         managementGroup)
             local mg_name
-            mg_name="$(echo "$scope_parts" | jq -r '.name')"
+            mg_name="$(echo "$scope_parts" | jq -r '.managementGroupName')"
             scope_splat_type="managementGroup"
             scope_splat_value="$mg_name"
             ;;
         subscription)
             local sub_id
-            sub_id="$(echo "$scope_parts" | jq -r '.id')"
+            sub_id="$(echo "$scope_parts" | jq -r '.subscriptionId')"
             scope_splat_type="subscription"
             scope_splat_value="$sub_id"
             ;;
@@ -652,8 +652,6 @@ epac_get_policy_or_set_definitions() {
     tenant_id="$(echo "$pac_environment" | jq -r '.tenantId')"
     local deployment_root_scope
     deployment_root_scope="$(echo "$pac_environment" | jq -r '.deploymentRootScope')"
-    local policy_defs_scopes
-    policy_defs_scopes="$(echo "$pac_environment" | jq '.policyDefinitionsScopes // []')"
     local excluded_scopes
     excluded_scopes="$(echo "$pac_environment" | jq '.desiredState.excludedScopes // []')"
     local excluded_ids="[]"
@@ -663,77 +661,73 @@ epac_get_policy_or_set_definitions() {
         excluded_ids="$(echo "$pac_environment" | jq '.desiredState.excludedPolicySetDefinitions // []')"
     fi
 
-    # Result structure
+    # Do all categorization in a single jq invocation for performance
     local result
-    result="$(jq -n '{
-        all: {},
-        readOnly: {},
-        managed: {},
-        counters: {
-            builtIn: 0,
-            inherited: 0,
-            managedBy: { thisPaC: 0, otherPaC: 0, unknown: 0 },
-            excluded: 0,
-            unmanagedScopes: 0
-        }
-    }')"
-
-    local def_count
-    def_count="$(echo "$all_defs" | jq 'length')"
-    local di=0
-    while [[ $di -lt $def_count ]]; do
-        local resource
-        resource="$(echo "$all_defs" | jq --argjson i "$di" '.[$i]')"
-        local resource_id
-        resource_id="$(echo "$resource" | jq -r '.id')"
-
-        # Validate tenant
-        local res_tenant
-        res_tenant="$(echo "$resource" | jq -r '.tenantId // empty')"
-        if [[ -n "$res_tenant" && "$res_tenant" != "$tenant_id" ]]; then
-            di=$((di + 1))
-            continue
-        fi
-
-        # Check exclusions
-        local included
-        included="$(epac_confirm_policy_resource_exclusions "$resource_id" "$resource_id" "$scope_table" "$excluded_scopes" "$excluded_ids")"
-        if [[ "$included" != "true" ]]; then
-            result="$(echo "$result" | jq '.counters.excluded += 1')"
-            di=$((di + 1))
-            continue
-        fi
-
-        # Determine pac owner
-        local pac_owner
-        pac_owner="$(epac_confirm_pac_owner "$pac_owner_id" "$resource")"
-
-        # Categorize by scope
-        local resource_parts
-        resource_parts="$(epac_split_policy_resource_id "$resource_id")"
-        local scope_type_r
-        scope_type_r="$(echo "$resource_parts" | jq -r '.scopeType')"
-
-        if [[ "$scope_type_r" == "builtin" ]]; then
-            result="$(echo "$result" | jq --arg id "$resource_id" --argjson r "$resource" '.all[$id] = $r | .readOnly[$id] = $r | .counters.builtIn += 1')"
+    result="$(echo "$all_defs" | jq \
+        --arg tenant_id "$tenant_id" \
+        --arg pac_owner_id "$pac_owner_id" \
+        --arg deployment_root_scope "$deployment_root_scope" \
+        --argjson scope_table "$scope_table" \
+        --argjson excluded_scopes "$excluded_scopes" \
+        --argjson excluded_ids "$excluded_ids" \
+    '
+    def get_scope_from_id:
+        # Extract scope from a policy resource ID
+        (. | ascii_downcase) as $lower |
+        if ($lower | startswith("/providers/microsoft.authorization/")) then
+            ""  # built-in
+        elif ($lower | contains("/providers/microsoft.authorization/policydefinitions/")) then
+            . | split("/providers/")[0]
+        elif ($lower | contains("/providers/microsoft.authorization/policysetdefinitions/")) then
+            . | split("/providers/")[0]
         else
-            local scope_r
-            scope_r="$(echo "$resource_parts" | jq -r '.scope')"
-            local scope_lower_r="${scope_r,,}"
-            local root_lower="${deployment_root_scope,,}"
+            ""
+        end;
 
-            if [[ "$scope_lower_r" == "$root_lower" ]]; then
-                # Managed scope
-                result="$(echo "$result" | jq --arg id "$resource_id" --argjson r "$resource" --arg o "$pac_owner" '
-                    .all[$id] = $r | .managed[$id] = $r | .counters.managedBy[$o] += 1')"
+    def is_builtin:
+        (. | ascii_downcase) as $lower |
+        ($lower | startswith("/providers/microsoft.authorization/")) and
+        ($lower | startswith("/subscriptions/") | not) and
+        ($lower | startswith("/providers/microsoft.management/") | not);
+
+    def get_pac_owner:
+        (.properties // .) as $props |
+        ($props.metadata.pacOwnerId // "") as $owner |
+        if $owner == "" then "unknownOwner"
+        elif $owner == $pac_owner_id then "thisPaC"
+        else "otherPaC"
+        end;
+
+    ($deployment_root_scope | ascii_downcase) as $root_lower |
+    ($excluded_scopes | map(ascii_downcase)) as $excl_scopes_lower |
+
+    reduce .[] as $resource (
+        {all: {}, readOnly: {}, managed: {}, counters: {builtIn: 0, inherited: 0, managedBy: {thisPaC: 0, otherPaC: 0, unknown: 0}, excluded: 0, unmanagedScopes: 0}};
+
+        ($resource.id // "") as $rid |
+        ($resource.tenantId // "") as $res_tenant |
+
+        # Skip wrong tenant
+        if ($res_tenant != "" and $res_tenant != $tenant_id) then .
+        else
+            ($rid | get_scope_from_id) as $scope |
+            ($scope | ascii_downcase) as $scope_lower |
+
+            # Check exclusions
+            if ($scope != "" and ($scope_table | has($scope) | not)) then
+                .counters.excluded += 1
+            elif ($scope != "" and ($excl_scopes_lower | any(. == $scope_lower))) then
+                .counters.excluded += 1
+            elif ($rid | is_builtin) then
+                .all[$rid] = $resource | .readOnly[$rid] = $resource | .counters.builtIn += 1
+            elif ($scope_lower == $root_lower) then
+                ($resource | get_pac_owner) as $owner |
+                .all[$rid] = $resource | .managed[$rid] = $resource | .counters.managedBy[$owner] += 1
             else
-                # Read-only or inherited
-                result="$(echo "$result" | jq --arg id "$resource_id" --argjson r "$resource" '.all[$id] = $r | .readOnly[$id] = $r | .counters.inherited += 1')"
-            fi
-        fi
-
-        di=$((di + 1))
-    done
+                .all[$rid] = $resource | .readOnly[$rid] = $resource | .counters.inherited += 1
+            end
+        end
+    )')"
 
     epac_write_status "${definition_type}: $(echo "$result" | jq '.all | length') total" "success" 2 >&2
     echo "$result"
@@ -764,84 +758,71 @@ epac_get_policy_assignments() {
     local all_assignments
     all_assignments="$(epac_search_az_graph "$query" "policy assignments" 1000)"
 
+    local scope_table="$2"
+
+    # Do all categorization in a single jq invocation
+    local categorized
+    categorized="$(echo "$all_assignments" | jq \
+        --arg tenant_id "$tenant_id" \
+        --arg pac_owner_id "$pac_owner_id" \
+        --argjson scope_table "$scope_table" \
+        --argjson excluded_scopes "$excluded_scopes" \
+        --argjson excluded_ids "$excluded_ids" \
+    '
+    def get_scope_from_id:
+        (. | ascii_downcase) as $lower |
+        if ($lower | contains("/providers/microsoft.authorization/policyassignments/")) then
+            . | split("/providers/")[0]
+        else ""
+        end;
+
+    def get_pac_owner:
+        (.properties // .) as $props |
+        ($props.assignmentType // "") as $at |
+        if $at == "SystemHidden" then "microsoft"
+        else
+            ($props.metadata.pacOwnerId // "") as $owner |
+            if $owner == "" then
+                ($props.description // "" | ascii_downcase) as $desc |
+                if ($desc | contains("this object has been generated by microsoft defender")) then "dfcSecurityPolicies"
+                elif ($desc | contains("this policy assignment was automatically created")) then "dfcDefenderPlans"
+                else "unknown"
+                end
+            elif $owner == $pac_owner_id then "thisPaC"
+            else "otherPaC"
+            end
+        end;
+
+    ($excluded_scopes | map(ascii_downcase)) as $excl_scopes_lower |
+
+    reduce .[] as $resource (
+        {managed: {}, counters: {managedBy: {thisPaC: 0, otherPaC: 0, microsoft: 0, dfcSecurityPolicies: 0, dfcDefenderPlans: 0, unknown: 0}, excluded: 0, unmanagedScopes: 0}, principalIds: []};
+
+        ($resource.id // "") as $rid |
+        ($resource.tenantId // "") as $res_tenant |
+
+        if ($res_tenant != "" and $res_tenant != $tenant_id) then .
+        else
+            ($rid | get_scope_from_id) as $scope |
+            ($scope | ascii_downcase) as $scope_lower |
+
+            if ($scope != "" and ($scope_table | has($scope) | not)) then
+                .counters.excluded += 1
+            elif ($scope != "" and ($excl_scopes_lower | any(. == $scope_lower))) then
+                .counters.excluded += 1
+            else
+                ($resource | get_pac_owner) as $owner |
+                .managed[$rid] = ($resource + {pacOwner: $owner}) | .counters.managedBy[$owner] += 1 |
+                (($resource.identity.principalId // "") as $pid |
+                 if $pid != "" and (.principalIds | any(. == $pid) | not) then .principalIds += [$pid] else . end)
+            end
+        end
+    )')"
+
     local result
-    result="$(jq -n '{
-        managed: {},
-        counters: {
-            managedBy: {
-                thisPaC: 0,
-                otherPaC: 0,
-                microsoft: 0,
-                dfcSecurityPolicies: 0,
-                dfcDefenderPlans: 0,
-                unknown: 0
-            },
-            excluded: 0,
-            unmanagedScopes: 0
-        }
-    }')"
-
-    local principal_ids="[]"
-    local assignment_count
-    assignment_count="$(echo "$all_assignments" | jq 'length')"
-    local ai=0
-
-    while [[ $ai -lt $assignment_count ]]; do
-        local resource
-        resource="$(echo "$all_assignments" | jq --argjson i "$ai" '.[$i]')"
-        local resource_id
-        resource_id="$(echo "$resource" | jq -r '.id')"
-
-        # Validate tenant
-        local res_tenant
-        res_tenant="$(echo "$resource" | jq -r '.tenantId // empty')"
-        if [[ -n "$res_tenant" && "$res_tenant" != "$tenant_id" ]]; then
-            ai=$((ai + 1))
-            continue
-        fi
-
-        # Check exclusions
-        local included
-        included="$(epac_confirm_policy_resource_exclusions "$resource_id" "$resource_id" "$scope_table" "$excluded_scopes" "$excluded_ids")"
-        if [[ "$included" != "true" ]]; then
-            result="$(echo "$result" | jq '.counters.excluded += 1')"
-            ai=$((ai + 1))
-            continue
-        fi
-
-        # Parse scope
-        local resource_parts
-        resource_parts="$(epac_split_policy_resource_id "$resource_id")"
-        local scope
-        scope="$(echo "$resource_parts" | jq -r '.scope')"
-
-        # Determine owner
-        local pac_owner
-        pac_owner="$(epac_confirm_pac_owner "$pac_owner_id" "$resource" "$scope")"
-
-        # Map owner to counter key
-        local counter_key
-        case "$pac_owner" in
-            thisPaC)                         counter_key="thisPaC" ;;
-            otherPaC)                        counter_key="otherPaC" ;;
-            microsoft)                       counter_key="microsoft" ;;
-            managedByDfcSecurityPolicies)     counter_key="dfcSecurityPolicies" ;;
-            managedByDfcDefenderPlans)        counter_key="dfcDefenderPlans" ;;
-            *)                               counter_key="unknown" ;;
-        esac
-
-        result="$(echo "$result" | jq --arg id "$resource_id" --argjson r "$resource" --arg ck "$counter_key" '
-            .managed[$id] = $r | .counters.managedBy[$ck] += 1')"
-
-        # Track principal IDs for role assignment lookup
-        local principal_id
-        principal_id="$(echo "$resource" | jq -r '.identity.principalId // empty')"
-        if [[ -n "$principal_id" ]]; then
-            principal_ids="$(echo "$principal_ids" | jq --arg p "$principal_id" 'if any(. == $p) then . else . + [$p] end')"
-        fi
-
-        ai=$((ai + 1))
-    done
+    result="$(echo "$categorized" | jq '{managed, counters}')"
+    local principal_ids
+    principal_ids="$(echo "$categorized" | jq '.principalIds')"
 
     epac_write_status "Policy assignments: $(echo "$result" | jq '.managed | length') collected" "success" 2 >&2
 
@@ -877,12 +858,22 @@ epac_get_policy_assignments() {
         fi
     fi
 
-    # Build combined result
+    # Build combined result using temp files to avoid arg-list-too-long
+    local _pa_tmp
+    _pa_tmp="$(mktemp)"
+    local _ra_tmp
+    _ra_tmp="$(mktemp)"
+    local _rd_tmp
+    _rd_tmp="$(mktemp)"
+    echo "$result" > "$_pa_tmp"
+    echo "$role_assignments" > "$_ra_tmp"
+    echo "$role_definitions" > "$_rd_tmp"
     jq -n \
-        --argjson assignments "$result" \
-        --argjson roleAssignments "$role_assignments" \
-        --argjson roleDefinitions "$role_definitions" \
-        '$assignments + {roleAssignmentsByPrincipalId: $roleAssignments, roleDefinitions: $roleDefinitions}'
+        --slurpfile assignments "$_pa_tmp" \
+        --slurpfile roleAssignments "$_ra_tmp" \
+        --slurpfile roleDefinitions "$_rd_tmp" \
+        '$assignments[0] + {roleAssignmentsByPrincipalId: $roleAssignments[0], roleDefinitions: $roleDefinitions[0]}'
+    rm -f "$_pa_tmp" "$_ra_tmp" "$_rd_tmp"
 }
 
 # ─── Collect policy exemptions ───────────────────────────────────────────────
@@ -932,99 +923,63 @@ epac_get_policy_exemptions() {
         all_exemptions="$(epac_search_az_graph "$query" "policy exemptions" 1000)"
     fi
 
+    local now_iso
+    now_iso="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+    # Do all categorization in a single jq invocation
     local result
-    result="$(jq -n '{
-        managed: {},
-        counters: {
-            managedBy: { thisPaC: 0, otherPaC: 0, unknown: 0 },
-            orphaned: 0,
-            expired: 0,
-            excluded: 0,
-            unmanagedScopes: 0
-        }
-    }')"
+    result="$(echo "$all_exemptions" | jq \
+        --arg tenant_id "$tenant_id" \
+        --arg pac_owner_id "$pac_owner_id" \
+        --argjson scope_table "$scope_table" \
+        --argjson excluded_scopes "$excluded_scopes" \
+        --arg now_iso "$now_iso" \
+    '
+    def get_scope_from_id:
+        (. | ascii_downcase) as $lower |
+        if ($lower | contains("/providers/microsoft.authorization/policyexemptions/")) then
+            . | split("/providers/")[0]
+        else ""
+        end;
 
-    local now_epoch
-    now_epoch="$(date -u +%s)"
+    def get_pac_owner:
+        (.properties // .) as $props |
+        ($props.metadata.pacOwnerId // "") as $owner |
+        if $owner == "" then "unknown"
+        elif $owner == $pac_owner_id then "thisPaC"
+        else "otherPaC"
+        end;
 
-    local ex_count
-    ex_count="$(echo "$all_exemptions" | jq 'length')"
-    local ei=0
-    while [[ $ei -lt $ex_count ]]; do
-        local resource
-        resource="$(echo "$all_exemptions" | jq --argjson i "$ei" '.[$i]')"
-        local resource_id
-        resource_id="$(echo "$resource" | jq -r '.id')"
+    ($excluded_scopes | map(ascii_downcase)) as $excl_scopes_lower |
 
-        # Validate tenant
-        local res_tenant
-        res_tenant="$(echo "$resource" | jq -r '.tenantId // empty')"
-        if [[ -n "$res_tenant" && "$res_tenant" != "$tenant_id" ]]; then
-            ei=$((ei + 1))
-            continue
-        fi
+    # Parse now_iso to epoch-ish days for comparison
+    ($now_iso | split("T")[0]) as $today |
 
-        # Get properties
-        local properties
-        properties="$(epac_get_policy_resource_properties "$resource")"
+    reduce .[] as $resource (
+        {managed: {}, counters: {managedBy: {thisPaC: 0, otherPaC: 0, unknown: 0}, orphaned: 0, expired: 0, excluded: 0, unmanagedScopes: 0}};
 
-        # Check assignment reference for exclusion test
-        local policy_assignment_id
-        policy_assignment_id="$(echo "$properties" | jq -r '.policyAssignmentId // empty')"
+        ($resource.id // "") as $rid |
+        ($resource.tenantId // "") as $res_tenant |
 
-        local included
-        included="$(epac_confirm_policy_resource_exclusions "${policy_assignment_id:-$resource_id}" "$resource_id" "$scope_table" "$excluded_scopes")"
-        if [[ "$included" != "true" ]]; then
-            result="$(echo "$result" | jq '.counters.excluded += 1')"
-            ei=$((ei + 1))
-            continue
-        fi
+        if ($res_tenant != "" and $res_tenant != $tenant_id) then .
+        else
+            ($rid | get_scope_from_id) as $scope |
+            ($scope | ascii_downcase) as $scope_lower |
+            (($resource.properties // $resource).policyAssignmentId // $rid) as $test_id |
+            ($test_id | get_scope_from_id) as $test_scope |
+            ($test_scope | ascii_downcase) as $test_scope_lower |
 
-        # Process expiration
-        local expires_on
-        expires_on="$(echo "$properties" | jq -r '.expiresOn // empty')"
-        local expiry_status="active"
-        local expires_in_days=999999
-
-        if [[ -n "$expires_on" ]]; then
-            local expires_epoch
-            expires_epoch="$(date -u -d "$expires_on" +%s 2>/dev/null)" || expires_epoch=0
-            if [[ $expires_epoch -gt 0 ]]; then
-                expires_in_days=$(( (expires_epoch - now_epoch) / 86400 ))
-                if [[ $expires_in_days -lt -15 ]]; then
-                    expiry_status="expired-over-15-days"
-                elif [[ $expires_in_days -lt 0 ]]; then
-                    expiry_status="expired-within-15-days"
-                elif [[ $expires_in_days -lt 15 ]]; then
-                    expiry_status="active-expiring-within-15-days"
-                fi
-            fi
-        fi
-
-        # Determine owner
-        local pac_owner
-        pac_owner="$(epac_confirm_pac_owner "$pac_owner_id" "$resource")"
-        local counter_key
-        case "$pac_owner" in
-            thisPaC)    counter_key="thisPaC" ;;
-            otherPaC)   counter_key="otherPaC" ;;
-            *)          counter_key="unknown" ;;
-        esac
-
-        # Build normalized exemption
-        local normalized
-        normalized="$(echo "$resource" | jq --arg es "$expiry_status" --argjson eid "$expires_in_days" --arg po "$pac_owner" '
-            . + {
-                expiryStatus: $es,
-                expiresInDays: $eid,
-                pacOwner: $po
-            }')"
-
-        result="$(echo "$result" | jq --arg id "$resource_id" --argjson r "$normalized" --arg ck "$counter_key" '
-            .managed[$id] = $r | .counters.managedBy[$ck] += 1')"
-
-        ei=$((ei + 1))
-    done
+            if ($test_scope != "" and ($scope_table | has($test_scope) | not)) then
+                .counters.excluded += 1
+            elif ($test_scope != "" and ($excl_scopes_lower | any(. == $test_scope_lower))) then
+                .counters.excluded += 1
+            else
+                ($resource | get_pac_owner) as $owner |
+                ($resource | . + {pacOwner: $owner}) as $normalized |
+                .managed[$rid] = $normalized | .counters.managedBy[$owner] += 1
+            end
+        end
+    )')"
 
     epac_write_status "Policy exemptions: $(echo "$result" | jq '.managed | length') collected" "success" 2 >&2
     echo "$result"
@@ -1044,37 +999,55 @@ epac_get_policy_resources() {
     local skip_role_assignments="${3:-false}"
     local skip_exemptions="${4:-false}"
     local collect_all="${5:-false}"
+    local output_dir="${6:-}"  # If provided, write section files here instead of merged JSON to stdout
 
     epac_write_section "Collecting Deployed Policy Resources" 0 >&2
 
-    local result="{}"
+    local _out_dir
+    if [[ -n "$output_dir" ]]; then
+        _out_dir="$output_dir"
+        mkdir -p "$_out_dir"
+    else
+        _out_dir="$(mktemp -d)"
+    fi
 
-    # Policy definitions
-    local policy_defs
-    policy_defs="$(epac_get_policy_or_set_definitions "policyDefinitions" "$pac_environment" "$scope_table")"
-    result="$(echo "$result" | jq --argjson pd "$policy_defs" '.policyDefinitions = $pd')"
+    # Policy definitions — output has {all, readOnly, managed, counters}
+    epac_get_policy_or_set_definitions "policyDefinitions" "$pac_environment" "$scope_table" > "$_out_dir/policydefinitions.json"
 
     # Policy set definitions
-    local policy_set_defs
-    policy_set_defs="$(epac_get_policy_or_set_definitions "policySetDefinitions" "$pac_environment" "$scope_table")"
-    result="$(echo "$result" | jq --argjson psd "$policy_set_defs" '.policySetDefinitions = $psd')"
+    epac_get_policy_or_set_definitions "policySetDefinitions" "$pac_environment" "$scope_table" > "$_out_dir/policysetdefinitions.json"
 
     # Policy assignments (with optional role assignments)
-    local assignments
-    assignments="$(epac_get_policy_assignments "$pac_environment" "$scope_table" "$skip_role_assignments")"
-    result="$(echo "$result" | jq --argjson pa "$assignments" '
-        .policyAssignments = {managed: $pa.managed, counters: $pa.counters} |
-        .roleAssignmentsByPrincipalId = $pa.roleAssignmentsByPrincipalId |
-        .roleDefinitions = $pa.roleDefinitions')"
+    epac_get_policy_assignments "$pac_environment" "$scope_table" "$skip_role_assignments" > "$_out_dir/policyassignments.json"
 
     # Policy exemptions
     if [[ "$skip_exemptions" != "true" ]]; then
-        local exemptions
-        exemptions="$(epac_get_policy_exemptions "$pac_environment" "$scope_table")"
-        result="$(echo "$result" | jq --argjson pe "$exemptions" '.policyExemptions = $pe')"
+        epac_get_policy_exemptions "$pac_environment" "$scope_table" > "$_out_dir/policyexemptions.json"
+    else
+        echo '{}' > "$_out_dir/policyexemptions.json"
     fi
 
-    echo "$result"
+    # If output_dir was provided, just echo the path
+    if [[ -n "$output_dir" ]]; then
+        echo "$_out_dir"
+        return
+    fi
+
+    # Otherwise, merge into single JSON for backwards compatibility (e.g. build-deployment-plans)
+    jq -n \
+        --slurpfile pd "$_out_dir/policydefinitions.json" \
+        --slurpfile psd "$_out_dir/policysetdefinitions.json" \
+        --slurpfile pa "$_out_dir/policyassignments.json" \
+        --slurpfile pe "$_out_dir/policyexemptions.json" \
+        '{
+            policydefinitions: {all: $pd[0].all, readOnly: $pd[0].readOnly, ownedBy: $pd[0].managed, counters: $pd[0].counters},
+            policysetdefinitions: {all: $psd[0].all, readOnly: $psd[0].readOnly, ownedBy: $psd[0].managed, counters: $psd[0].counters},
+            policyassignments: {all: $pa[0].managed, managed: $pa[0].managed, counters: $pa[0].counters},
+            roleAssignmentsByPrincipalId: ($pa[0].roleAssignmentsByPrincipalId // {}),
+            roleDefinitions: ($pa[0].roleDefinitions // {}),
+            policyexemptions: $pe[0]
+        }'
+    rm -rf "$_out_dir"
 }
 
 # ─── Find non-compliant resources ────────────────────────────────────────────

@@ -311,12 +311,21 @@ epac_split_policy_resource_id() {
     # Remove trailing slash from name if any
     name="${name%%/*}"
 
+    # Determine scope type
+    local scope_type="custom"
+    if [[ -z "$scope" ]]; then
+        scope_type="builtin"
+    fi
+
     jq -n --arg id "$resource_id" --arg scope "$scope" \
-          --arg type "$resource_type" --arg name "$name" '{
+          --arg type "$resource_type" --arg name "$name" \
+          --arg scopeType "$scope_type" '{
         id: $id,
         scope: $scope,
-        resourceType: $type,
-        name: $name
+        kind: $type,
+        name: $name,
+        definitionKey: $name,
+        scopeType: $scopeType
     }'
 }
 
