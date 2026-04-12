@@ -1496,49 +1496,16 @@ epac_build_assignment_plan() {
     local deployed_role_assignments_by_principal="${5}"
     local detailed_output="${6:-false}"
 
-    # Large data read from $EPAC_TMP_DIR (written by build-deployment-plans.sh)
-    local deployed_assignments
-    deployed_assignments="$(cat "$EPAC_TMP_DIR/deployed_assignments.json")"
-
-    local pac_owner_id
-    pac_owner_id="$(echo "$pac_environment" | jq -r '.pacOwnerId')"
-    local strategy
-    strategy="$(echo "$pac_environment" | jq -r '.desiredState.strategy // "full"')"
-    local keep_dfc_security
-    keep_dfc_security="$(echo "$pac_environment" | jq -r '.desiredState.keepDfcSecurityAssignments // false')"
-
-    local policy_definitions_scopes
-    policy_definitions_scopes="$(echo "$pac_environment" | jq '.policyDefinitionsScopes // []')"
-
-    # Build flat policy list from details
-    local flat_policy_list="{}"
-    # We pass the details' policySet definitions through the flat list builder
-    # For assignments, the flat list is built per-entry in the leaf node
-
-    # Clone deployed managed assignments as delete candidates
-    local delete_candidates
-    delete_candidates="$(echo "$deployed_assignments" | jq '.managed // {}')"
-
-    local assignments_new="{}"
-    local assignments_update="{}"
-    local assignments_replace="{}"
-    local assignments_delete="{}"
-    local assignments_unchanged=0
-
-    # Role assignment accumulators — use temp files to avoid "Argument list too long"
-    local _ra_added_file _ra_updated_file _ra_removed_file
-    _ra_added_file="$(mktemp)"
-    _ra_updated_file="$(mktemp)"
-    _ra_removed_file="$(mktemp)"
+    local _jq_script="${_EPAC_APLAN_DIR}/build-assignment-plan.jq"
 
     # Collect all JSON/JSONC files
     if [[ ! -d "$assignments_root_folder" ]]; then
         epac_write_status "Assignments folder not found: ${assignments_root_folder}" "warning" 2 >&2
-        _epac_emit_assignment_plan_result \
-            "$assignments_new" "$assignments_update" "$assignments_replace" "$assignments_delete" \
-            "$assignments_unchanged" \
-            "[]" "[]" "[]"
-        rm -f "$_ra_added_file" "$_ra_updated_file" "$_ra_removed_file"
+        jq -n '{
+            assignments: {new:{}, update:{}, replace:{}, delete:{}, numberUnchanged:0, numberOfChanges:0},
+            roleAssignments: {added:[], updated:[], removed:[], numberOfChanges:0},
+            numberTotalChanges: 0
+        }'
         return 0
     fi
 
@@ -1550,299 +1517,63 @@ epac_build_assignment_plan() {
     local file_count=${#files[@]}
     epac_write_section "Processing ${file_count} assignment files" 0 >&2
 
+    # Collect all assignment file contents into a JSON array (strip JSONC comments)
+    local _af_file="$EPAC_TMP_DIR/assignment_files.json"
+    local _af_tmp="$EPAC_TMP_DIR/assignment_files_tmp.jsonl"
+    : > "$_af_tmp"
     for file in "${files[@]}"; do
         local file_content
         if ! file_content="$(epac_read_jsonc "$file")"; then
             epac_log_error "Failed to parse: ${file}" >&2
             continue
         fi
-
-        # Build root definition template
-        local root_def
-        root_def="$(jq -n '{
-            nodeName: "",
-            assignment: {name: "", displayName: "", description: ""},
-            enforcementMode: "Default",
-            metadata: {},
-            parameters: {},
-            nonComplianceMessages: [],
-            overrides: [],
-            resourceSelectors: [],
-            additionalRoleAssignments: [],
-            definitionEntryList: [],
-            scopeCollection: {},
-            managedIdentityLocation: "global",
-            userAssignedIdentity: null,
-            definitionVersion: null,
-            csvParameterArray: null,
-            csvRowsValidated: false
-        }')"
-
-        # Recursively process the tree
-        local tree_result
-        tree_result="$(_epac_build_assignment_definition_node \
-            "$pac_environment" "$root_def" "$file_content" \
-            "$role_definitions" "$policy_definitions_scopes" "$flat_policy_list")"
-
-        local tree_errors
-        tree_errors="$(echo "$tree_result" | jq -r '.hasErrors')"
-        if [[ "$tree_errors" == "true" ]]; then
-            epac_log_error "Errors in assignment file: ${file}" >&2
-            continue
-        fi
-
-        local desired_assignments
-        desired_assignments="$(echo "$tree_result" | jq '.assignments')"
-        local desired_count
-        desired_count="$(echo "$desired_assignments" | jq 'length')"
-
-        # Compare with deployed
-        local di=0
-        while [[ $di -lt $desired_count ]]; do
-            local desired
-            desired="$(echo "$desired_assignments" | jq --argjson i "$di" '.[$i]')"
-            local assignment_id
-            assignment_id="$(echo "$desired" | jq -r '.id')"
-
-            # Remove from delete candidates
-            delete_candidates="$(echo "$delete_candidates" | jq --arg id "$assignment_id" 'del(.[$id])')"
-
-            local deployed
-            deployed="$(echo "$deployed_assignments" | jq --arg id "$assignment_id" '.managed[$id] // null')"
-
-            if [[ "$deployed" == "null" ]]; then
-                # Check read-only
-                deployed="$(echo "$deployed_assignments" | jq --arg id "$assignment_id" '.readOnly[$id] // null')"
-            fi
-
-            if [[ "$deployed" != "null" ]]; then
-                # Compare existing vs desired
-                local deployed_props
-                deployed_props="$(echo "$deployed" | jq 'if .properties then .properties else . end')"
-
-                # Field comparisons
-                local dn_match="false" desc_match="false" em_match="false"
-                local deployed_dn deployed_desc deployed_em
-
-                deployed_dn="$(echo "$deployed_props" | jq -r '.displayName // empty')"
-                deployed_desc="$(echo "$deployed_props" | jq -r '.description // empty')"
-                deployed_em="$(echo "$deployed_props" | jq -r '.enforcementMode // "Default"')"
-                local desired_dn desired_desc desired_em
-                desired_dn="$(echo "$desired" | jq -r '.displayName // empty')"
-                desired_desc="$(echo "$desired" | jq -r '.description // empty')"
-                desired_em="$(echo "$desired" | jq -r '.enforcementMode // "Default"')"
-
-                [[ "$deployed_dn" == "$desired_dn" ]] && dn_match="true"
-                [[ "$deployed_desc" == "$desired_desc" ]] && desc_match="true"
-                [[ "$deployed_em" == "$desired_em" ]] && em_match="true"
-
-                # Metadata
-                local deployed_meta
-                deployed_meta="$(echo "$deployed_props" | jq '.metadata // {}')"
-                local desired_meta
-                desired_meta="$(echo "$desired" | jq '.metadata // {}')"
-                local meta_result
-                meta_result="$(epac_confirm_metadata_matches "$deployed_meta" "$desired_meta")"
-                local meta_match change_pac_owner
-                meta_match="$(echo "$meta_result" | jq -r '.match')"
-                change_pac_owner="$(echo "$meta_result" | jq -r '.changePacOwnerId')"
-
-                # Parameters
-                local param_match="true"
-                if ! epac_confirm_parameters_usage_matches \
-                    "$(echo "$deployed_props" | jq '.parameters // null')" \
-                    "$(echo "$desired" | jq '.parameters // null')"; then
-                    param_match="false"
-                fi
-
-                # Not Scopes
-                local not_scopes_match="true"
-                local deployed_not_scopes desired_not_scopes
-                deployed_not_scopes="$(echo "$deployed_props" | jq '.notScopes // []')"
-                desired_not_scopes="$(echo "$desired" | jq '.notScopes // []')"
-                if ! epac_deep_equal "$deployed_not_scopes" "$desired_not_scopes"; then
-                    not_scopes_match="false"
-                fi
-
-                # Non-compliance messages (strip null-valued fields added by Resource Graph)
-                local ncm_match="true"
-                if ! epac_deep_equal \
-                    "$(echo "$deployed_props" | jq '[(.nonComplianceMessages // [])[] | with_entries(select(.value != null))]')" \
-                    "$(echo "$desired" | jq '[(.nonComplianceMessages // [])[] | with_entries(select(.value != null))]')"; then
-                    ncm_match="false"
-                fi
-
-                # Overrides
-                local overrides_match="true"
-                if ! epac_deep_equal \
-                    "$(echo "$deployed_props" | jq '.overrides // []')" \
-                    "$(echo "$desired" | jq '.overrides // []')"; then
-                    overrides_match="false"
-                fi
-
-                # Resource selectors
-                local rsel_match="true"
-                if ! epac_deep_equal \
-                    "$(echo "$deployed_props" | jq '.resourceSelectors // []')" \
-                    "$(echo "$desired" | jq '.resourceSelectors // []')"; then
-                    rsel_match="false"
-                fi
-
-                # Definition version
-                local version_match="true"
-                local deployed_version desired_version
-                deployed_version="$(echo "$deployed_props" | jq -r '.definitionVersion // empty')"
-                desired_version="$(echo "$desired" | jq -r '.definitionVersion // empty')"
-                [[ "$deployed_version" != "$desired_version" ]] && version_match="false"
-
-                # Check if definition was replaced
-                local definition_id
-                definition_id="$(echo "$desired" | jq -r '.policyDefinitionId')"
-                local def_replaced="false"
-                local is_in_replace
-                is_in_replace="$(echo "$replace_definitions" | jq --arg id "$definition_id" 'has($id)')"
-                [[ "$is_in_replace" == "true" ]] && def_replaced="true"
-
-                # Identity changes
-                local identity_result
-                identity_result="$(_epac_build_assignment_identity_changes \
-                    "$deployed" "$desired" "$def_replaced" "$deployed_role_assignments_by_principal")"
-                local identity_replaced
-                identity_replaced="$(echo "$identity_result" | jq -r '.replaced')"
-
-                local deployed_def_id
-                deployed_def_id="$(echo "$deployed_props" | jq -r '.policyDefinitionId // empty')"
-                local desired_def_id
-                desired_def_id="$(echo "$desired" | jq -r '.policyDefinitionId // empty')"
-
-                # Determine if replacement needed
-                local needs_replace="false"
-                [[ "$identity_replaced" == "true" ]] && needs_replace="true"
-                [[ "$deployed_def_id" != "$desired_def_id" ]] && needs_replace="true"
-
-                # Build changes string
-                local changes=()
-                [[ "$dn_match" != "true" ]] && changes+=("displayName")
-                [[ "$desc_match" != "true" ]] && changes+=("description")
-                [[ "$em_match" != "true" ]] && changes+=("enforcementMode")
-                [[ "$meta_match" != "true" || "$change_pac_owner" == "true" ]] && changes+=("metadata")
-                [[ "$param_match" != "true" ]] && changes+=("parameters")
-                [[ "$not_scopes_match" != "true" ]] && changes+=("notScopes")
-                [[ "$ncm_match" != "true" ]] && changes+=("nonComplianceMessages")
-                [[ "$overrides_match" != "true" ]] && changes+=("overrides")
-                [[ "$rsel_match" != "true" ]] && changes+=("resourceSelectors")
-                [[ "$version_match" != "true" ]] && changes+=("version")
-                [[ "$needs_replace" == "true" ]] && changes+=("replace")
-
-                # Identity change strings
-                local id_strings
-                id_strings="$(echo "$identity_result" | jq -r '.changedIdentityStrings[]' 2>/dev/null || true)"
-                while IFS= read -r s; do
-                    [[ -n "$s" ]] && changes+=("$s")
-                done <<< "$id_strings"
-
-                # Collect role assignment changes
-                local id_added id_updated id_removed
-                id_added="$(echo "$identity_result" | jq '.added')"
-                id_updated="$(echo "$identity_result" | jq '.updated')"
-                id_removed="$(echo "$identity_result" | jq '.removed')"
-                [[ "$(echo "$id_added" | jq 'length')" -gt 0 ]] && echo "$id_added" | jq -c '.[]' >> "$_ra_added_file"
-                [[ "$(echo "$id_updated" | jq 'length')" -gt 0 ]] && echo "$id_updated" | jq -c '.[]' >> "$_ra_updated_file"
-                [[ "$(echo "$id_removed" | jq 'length')" -gt 0 ]] && echo "$id_removed" | jq -c '.[]' >> "$_ra_removed_file"
-
-                if [[ ${#changes[@]} -eq 0 ]]; then
-                    assignments_unchanged=$((assignments_unchanged + 1))
-                else
-                    local changes_str
-                    changes_str="$(IFS=','; echo "${changes[*]}")"
-                    local display
-                    display="$(echo "$desired" | jq -r '.displayName // .name')"
-
-                    if [[ "$needs_replace" == "true" ]]; then
-                        epac_write_status "Replace (${changes_str}): ${display}" "replace" 4 >&2
-                        assignments_replace="$(echo "$assignments_replace" | jq --arg id "$assignment_id" --argjson d "$desired" '.[$id] = $d')"
-                    else
-                        epac_write_status "Update (${changes_str}): ${display}" "update" 4 >&2
-                        assignments_update="$(echo "$assignments_update" | jq --arg id "$assignment_id" --argjson d "$desired" '.[$id] = $d')"
-                    fi
-                fi
-            else
-                # New assignment
-                local display
-                display="$(echo "$desired" | jq -r '.displayName // .name')"
-                epac_write_status "New: ${display}" "new" 4 >&2
-                assignments_new="$(echo "$assignments_new" | jq --arg id "$assignment_id" --argjson d "$desired" '.[$id] = $d')"
-
-                # Role assignments for new
-                local new_identity_result
-                new_identity_result="$(_epac_build_assignment_identity_changes \
-                    "null" "$desired" "false" "$deployed_role_assignments_by_principal")"
-                local new_added
-                new_added="$(echo "$new_identity_result" | jq '.added')"
-                [[ "$(echo "$new_added" | jq 'length')" -gt 0 ]] && echo "$new_added" | jq -c '.[]' >> "$_ra_added_file"
-            fi
-
-            di=$((di + 1))
-        done
+        echo "$file_content" >> "$_af_tmp"
     done
+    jq -s '.' "$_af_tmp" > "$_af_file"
+    rm -f "$_af_tmp"
 
-    # Process delete candidates
-    local del_keys
-    del_keys="$(echo "$delete_candidates" | jq -r 'keys[]' 2>/dev/null || true)"
-    while IFS= read -r del_id; do
-        [[ -z "$del_id" ]] && continue
-        local del_assignment
-        del_assignment="$(echo "$delete_candidates" | jq --arg id "$del_id" '.[$id]')"
+    # Write config data to temp files for --slurpfile
+    local _replace_file="$EPAC_TMP_DIR/replace_defs.json"
+    local _roles_file="$EPAC_TMP_DIR/deployed_role_assignments.json"
+    local _pacenv_file="$EPAC_TMP_DIR/pac_environment.json"
+    local _roledefs_file="$EPAC_TMP_DIR/role_definitions.json"
+    echo "$replace_definitions" > "$_replace_file"
+    echo "$deployed_role_assignments_by_principal" > "$_roles_file"
+    echo "$pac_environment" > "$_pacenv_file"
+    echo "$role_definitions" > "$_roledefs_file"
 
-        # Classify the pac owner
-        local del_pac_owner_class
-        del_pac_owner_class="$(epac_confirm_pac_owner "$pac_owner_id" "$del_assignment")"
+    # Single jq invocation for the entire assignment plan
+    local plan_result
+    plan_result="$(jq -n \
+        --slurpfile af "$_af_file" \
+        --slurpfile pp "$EPAC_TMP_DIR/policy_params.json" \
+        --slurpfile pdi "$EPAC_TMP_DIR/policy_def_index.json" \
+        --slurpfile psdi "$EPAC_TMP_DIR/policy_set_def_index.json" \
+        --slurpfile pri "$EPAC_TMP_DIR/policy_role_ids.json" \
+        --slurpfile stl "$EPAC_TMP_DIR/scope_table_lower.json" \
+        --slurpfile da "$EPAC_TMP_DIR/deployed_assignments.json" \
+        --slurpfile replaceDefs "$_replace_file" \
+        --slurpfile deployedRoles "$_roles_file" \
+        --slurpfile pacEnv "$_pacenv_file" \
+        --slurpfile roleDefs "$_roledefs_file" \
+        -f "$_jq_script")"
 
-        if epac_confirm_delete_for_strategy "$del_pac_owner_class" "$strategy" "$keep_dfc_security" "false"; then
-            local del_props
-            del_props="$(echo "$del_assignment" | jq 'if .properties then .properties else . end')"
-            local del_display
-            del_display="$(echo "$del_props" | jq -r '.displayName // empty')"
-            epac_write_status "Delete: ${del_display}" "delete" 4 >&2
-            assignments_delete="$(echo "$assignments_delete" | jq --arg id "$del_id" --argjson d "$del_assignment" '.[$id] = $d')"
+    # Output diagnostics to stderr
+    echo "$plan_result" | jq -r '.diagnostics[]? | .message // empty' >&2
 
-            # Role assignments for deleted
-            local del_identity_result
-            del_identity_result="$(_epac_build_assignment_identity_changes \
-                "$del_assignment" "null" "false" "$deployed_role_assignments_by_principal")"
-            local del_removed
-            del_removed="$(echo "$del_identity_result" | jq '.removed')"
-            [[ "$(echo "$del_removed" | jq 'length')" -gt 0 ]] && echo "$del_removed" | jq -c '.[]' >> "$_ra_removed_file"
-        fi
-    done <<< "$del_keys"
-
-    # Assemble role assignment arrays from temp files
-    local role_assignments_added role_assignments_updated role_assignments_removed
-    if [[ -s "$_ra_added_file" ]]; then
-        role_assignments_added="$(jq -s '.' "$_ra_added_file")"
-    else
-        role_assignments_added="[]"
+    # Check for errors
+    local has_errors
+    has_errors="$(echo "$plan_result" | jq -r '.hasErrors // false')"
+    if [[ "$has_errors" == "true" ]]; then
+        epac_log_error "Errors found during assignment plan building" >&2
     fi
-    if [[ -s "$_ra_updated_file" ]]; then
-        role_assignments_updated="$(jq -s '.' "$_ra_updated_file")"
-    else
-        role_assignments_updated="[]"
-    fi
-    if [[ -s "$_ra_removed_file" ]]; then
-        role_assignments_removed="$(jq -s '.' "$_ra_removed_file")"
-    else
-        role_assignments_removed="[]"
-    fi
-    rm -f "$_ra_added_file" "$_ra_updated_file" "$_ra_removed_file"
 
-    _epac_emit_assignment_plan_result \
-        "$assignments_new" "$assignments_update" "$assignments_replace" "$assignments_delete" \
-        "$assignments_unchanged" \
-        "$role_assignments_added" "$role_assignments_updated" "$role_assignments_removed"
+    # Output the plan (strip diagnostics and hasErrors from output)
+    echo "$plan_result" | jq '{assignments, roleAssignments, numberTotalChanges}'
 }
 
 ###############################################################################
-# Emit final result JSON
+# Emit final result JSON (legacy, kept for compatibility)
 ###############################################################################
 
 _epac_emit_assignment_plan_result() {

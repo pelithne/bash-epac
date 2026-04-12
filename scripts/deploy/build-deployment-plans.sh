@@ -77,7 +77,25 @@ fi
 
 script_start_time="$(date +%s)"
 
+# Phase timing helper
+_phase_start=0
+_timer() {
+    local label="$1"
+    local now
+    now="$(date +%s)"
+    if [[ $_phase_start -gt 0 ]]; then
+        local elapsed=$((now - _phase_start))
+        epac_write_status "⏱  Phase completed in ${elapsed}s" "info" 2 >&2
+    fi
+    if [[ -n "$label" ]]; then
+        epac_write_status "⏱  Starting: ${label}" "info" 2 >&2
+    fi
+    _phase_start=$now
+}
+
 epac_write_header "Enterprise Policy as Code (EPAC)" "Building Deployment Plans"
+
+_timer "Global settings & environment selection"
 
 # Load global settings & select environment
 pac_environment="$(epac_select_pac_environment "$pac_environment_selector" "$definitions_root_folder" "$output_folder" "$interactive")"
@@ -88,6 +106,7 @@ tenant_id="$(echo "$pac_environment" | jq -r '.tenantId')"
 cloud="$(echo "$pac_environment" | jq -r '.cloud // "AzureCloud"')"
 pac_owner_id="$(echo "$pac_environment" | jq -r '.pacOwnerId')"
 
+_timer "Azure authentication"
 # Authenticate
 epac_set_cloud_tenant_subscription "$cloud" "$tenant_id" "$interactive"
 
@@ -201,6 +220,7 @@ exemption_plan_result='{"exemptions":{"new":{},"update":{},"replace":{},"delete"
 if [[ "$build_any" == "true" ]]; then
 
     # Build scope table
+    _timer "Building scope table"
     epac_write_section "Building Scope Table" 0
     scope_table="$(epac_build_scope_table "$pac_environment")"
 
@@ -210,9 +230,11 @@ if [[ "$build_any" == "true" ]]; then
     local_skip_roles="true"
     [[ "$build_policy_assignments" == "true" ]] && local_skip_roles="false"
 
+    _timer "Fetching deployed policy resources"
     epac_write_section "Fetching Deployed Policy Resources" 0
     deployed_resources="$(epac_get_policy_resources "$pac_environment" "$scope_table" "$local_skip_exemptions" "$local_skip_roles")"
 
+    _timer "Extracting deployed resources to temp files"
     # Extract deployed resource sections to temp files (too large for shell variables as args)
     _tmp_defs="$(mktemp)"
     _tmp_set_defs="$(mktemp)"
@@ -290,6 +312,7 @@ if [[ "$build_any" == "true" ]]; then
     fi
 
     # ── Combined Policy Details ──
+    _timer "Pre-calculating policy details"
     epac_write_section "Pre-calculating Policy Details" 0
     # Write large data to temp files for assignment plan (avoids Argument list too long)
     export EPAC_TMP_DIR; EPAC_TMP_DIR="$(mktemp -d)"
@@ -306,6 +329,14 @@ if [[ "$build_any" == "true" ]]; then
     echo "$deployed_exemptions" > "$EPAC_TMP_DIR/deployed_exemptions.json"
     echo "$all_definitions" > "$EPAC_TMP_DIR/all_definitions.json"
 
+    # Pre-extract compact lookup files for fast jq-based assignment plan
+    jq '{
+      policies: (.policies | map_values({parameters: (.parameters // {})})),
+      policySets: (.policySets | map_values({parameters: (.parameters // {})}))
+    }' "$EPAC_TMP_DIR/combined_policy_details.json" > "$EPAC_TMP_DIR/policy_params.json"
+    jq 'map_values(null)' "$EPAC_TMP_DIR/all_policy_defs.json" > "$EPAC_TMP_DIR/policy_def_index.json"
+    jq 'map_values(null)' "$EPAC_TMP_DIR/all_policy_set_defs.json" > "$EPAC_TMP_DIR/policy_set_def_index.json"
+
     # Populate allAssignments
     _tmp_managed="$(mktemp)"
     echo "$deployed_assignments" | jq '.managed // {}' > "$_tmp_managed"
@@ -314,6 +345,7 @@ if [[ "$build_any" == "true" ]]; then
 
     # ── Assignment Plan ──
     if [[ "$build_policy_assignments" == "true" ]]; then
+        _timer "Building assignment plan"
         epac_write_section "Building Assignment Plan" 0
         # Determine role definitions (simplified - map scopeTable roleDefinitions)
         role_definitions="{}"
@@ -331,6 +363,7 @@ if [[ "$build_any" == "true" ]]; then
 
     # ── Exemptions Plan ──
     if [[ "$build_policy_exemptions" == "true" ]]; then
+        _timer "Building exemptions plan"
         epac_write_section "Building Exemptions Plan" 0
         replaced_assignments="$(echo "$assignment_plan_result" | jq '.assignments.replace // {}')"
         exemption_plan_result="$(epac_build_exemptions_plan \
@@ -340,6 +373,7 @@ if [[ "$build_any" == "true" ]]; then
             "$skip_not_scoped_exemptions" "$fail_on_exemption_error")"
     fi
 
+    _timer "Building summary"
     # ── Summary ──
     epac_write_header "EPAC Deployment Plan Summary" "Policy as Code Resource Analysis"
 
@@ -477,6 +511,7 @@ case "$devops_type" in
 esac
 
 # Completion
+_timer ""
 script_end_time="$(date +%s)"
 elapsed=$((script_end_time - script_start_time))
 minutes=$((elapsed / 60))
