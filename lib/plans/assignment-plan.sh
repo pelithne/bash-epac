@@ -130,9 +130,12 @@ _epac_add_selected_pac_array() {
 _epac_build_assignment_definition_entry() {
     local entry_obj="$1"
     local policy_definitions_scopes="$2"
-    local all_policy_definitions="$3"
-    local all_policy_set_definitions="$4"
-    local node_name="$5"
+    local node_name="$3"
+
+    # Large data read from $EPAC_TMP_DIR
+    local all_policy_definitions all_policy_set_definitions
+    all_policy_definitions="$(cat "$EPAC_TMP_DIR/all_policy_defs.json")"
+    all_policy_set_definitions="$(cat "$EPAC_TMP_DIR/all_policy_set_defs.json")"
 
     # Count identifiers present
     local policy_name policy_id policy_set_name policy_set_id initiative_name initiative_id
@@ -538,8 +541,11 @@ _epac_merge_assignment_parameters_ex() {
     local base_assignment="$3"
     local parameter_instructions="$4"
     local flat_policy_list="$5"
-    local combined_policy_details="$6"
-    local effect_processed="$7"
+    local effect_processed="$6"
+
+    # Large data read from $EPAC_TMP_DIR
+    local combined_policy_details
+    combined_policy_details="$(cat "$EPAC_TMP_DIR/combined_policy_details.json")"
 
     local csv_array
     csv_array="$(echo "$parameter_instructions" | jq '.csvParameterArray // []')"
@@ -756,10 +762,13 @@ _epac_merge_assignment_parameters_ex() {
 _epac_build_assignment_definition_at_leaf() {
     local assignment_def="$1"
     local pac_environment="$2"
-    local combined_policy_details="$3"
-    local policy_role_ids="$4"
-    local role_definitions="$5"
-    local flat_policy_list="$6"
+    local role_definitions="$3"
+    local flat_policy_list="$4"
+
+    # Large data read from $EPAC_TMP_DIR on demand
+    local combined_policy_details policy_role_ids
+    combined_policy_details="$(cat "$EPAC_TMP_DIR/combined_policy_details.json")"
+    policy_role_ids="$(cat "$EPAC_TMP_DIR/policy_role_ids.json")"
 
     local pac_owner_id
     pac_owner_id="$(echo "$pac_environment" | jq -r '.pacOwnerId')"
@@ -976,7 +985,7 @@ _epac_build_assignment_definition_at_leaf() {
             merge_result="$(_epac_merge_assignment_parameters_ex \
                 "$node_name" "$entry_id" \
                 "$(jq -n --argjson p "$parameters" --argjson ncm "$non_compliance_messages" '{parameters: $p, nonComplianceMessages: $ncm}')" \
-                "$param_instructions" "$flat_policy_list" "$combined_policy_details" "$effect_processed_for_policy")"
+                "$param_instructions" "$flat_policy_list" "$effect_processed_for_policy")"
 
             local merge_errors
             merge_errors="$(echo "$merge_result" | jq -r '.hasErrors')"
@@ -1145,14 +1154,13 @@ _epac_build_assignment_definition_node() {
     local pac_environment="$1"
     local assignment_def="$2"
     local node_object="$3"
-    local combined_policy_details="$4"
-    local policy_role_ids="$5"
-    local role_definitions="$6"
-    local policy_definitions_scopes="$7"
-    local all_policy_definitions="$8"
-    local all_policy_set_definitions="$9"
-    local scope_table="${10}"
-    local flat_policy_list="${11}"
+    local role_definitions="$4"
+    local policy_definitions_scopes="$5"
+    local flat_policy_list="${6}"
+
+    # NOTE: Large data (combined_policy_details, policy_role_ids,
+    # all_policy_definitions, all_policy_set_definitions, scope_table)
+    # are read from $EPAC_TMP_DIR files lazily where needed, not upfront.
 
     local pac_selector
     pac_selector="$(echo "$pac_environment" | jq -r '.pacSelector // "*"')"
@@ -1225,7 +1233,7 @@ _epac_build_assignment_definition_node() {
     if [[ "$def_entry" != "null" ]]; then
         # Single entry → convert to list
         local resolved
-        resolved="$(_epac_build_assignment_definition_entry "$def_entry" "$policy_definitions_scopes" "$all_policy_definitions" "$all_policy_set_definitions" "$node_name")"
+        resolved="$(_epac_build_assignment_definition_entry "$def_entry" "$policy_definitions_scopes" "$node_name")"
         local valid
         valid="$(echo "$resolved" | jq -r '.valid')"
         if [[ "$valid" != "true" ]]; then
@@ -1242,7 +1250,7 @@ _epac_build_assignment_definition_node() {
             local single_entry
             single_entry="$(echo "$def_entry_list" | jq --argjson i "$di" '.[$i]')"
             local resolved
-            resolved="$(_epac_build_assignment_definition_entry "$single_entry" "$policy_definitions_scopes" "$all_policy_definitions" "$all_policy_set_definitions" "$node_name")"
+            resolved="$(_epac_build_assignment_definition_entry "$single_entry" "$policy_definitions_scopes" "$node_name")"
             local valid
             valid="$(echo "$resolved" | jq -r '.valid')"
             if [[ "$valid" != "true" ]]; then
@@ -1323,9 +1331,14 @@ _epac_build_assignment_definition_node() {
         fi
     fi
 
-    # Scope processing
-    local scope_node
+    # Scope processing — read scope_table lazily (only if scope or notScope present)
+    local scope_node not_scope_node
     scope_node="$(echo "$node_object" | jq '.scope // null')"
+    not_scope_node="$(echo "$node_object" | jq '.notScope // null')"
+    if [[ "$scope_node" != "null" || "$not_scope_node" != "null" ]]; then
+        local scope_table
+        scope_table="$(cat "$EPAC_TMP_DIR/scope_table.json")"
+    fi
     if [[ "$scope_node" != "null" ]]; then
         local scope_val
         scope_val="$(_epac_add_selected_pac_value "$scope_node" "$pac_selector")"
@@ -1344,8 +1357,6 @@ _epac_build_assignment_definition_node() {
     fi
 
     # Not scopes (accumulate, filter by scope, support wildcards)
-    local not_scope_node
-    not_scope_node="$(echo "$node_object" | jq '.notScope // null')"
     if [[ "$not_scope_node" != "null" ]]; then
         local not_scope_list
         not_scope_list="$(_epac_add_selected_pac_array "[]" "$not_scope_node" "$pac_selector")"
@@ -1416,9 +1427,7 @@ _epac_build_assignment_definition_node() {
             local child_result
             child_result="$(_epac_build_assignment_definition_node \
                 "$pac_environment" "$(epac_deep_clone "$def")" "$child" \
-                "$combined_policy_details" "$policy_role_ids" "$role_definitions" \
-                "$policy_definitions_scopes" "$all_policy_definitions" "$all_policy_set_definitions" \
-                "$scope_table" "$flat_policy_list")"
+                "$role_definitions" "$policy_definitions_scopes" "$flat_policy_list")"
             local child_errors
             child_errors="$(echo "$child_result" | jq -r '.hasErrors')"
             [[ "$child_errors" == "true" ]] && any_errors="true"
@@ -1432,7 +1441,7 @@ _epac_build_assignment_definition_node() {
     else
         # Leaf node
         _epac_build_assignment_definition_at_leaf "$def" "$pac_environment" \
-            "$combined_policy_details" "$policy_role_ids" "$role_definitions" "$flat_policy_list"
+            "$role_definitions" "$flat_policy_list"
     fi
 }
 
@@ -1464,16 +1473,14 @@ _epac_build_assignment_definition_node() {
 epac_build_assignment_plan() {
     local assignments_root_folder="$1"
     local pac_environment="$2"
-    local deployed_assignments="$3"
-    local all_policy_definitions="$4"
-    local all_policy_set_definitions="$5"
-    local combined_policy_details="$6"
-    local replace_definitions="$7"
-    local policy_role_ids="$8"
-    local role_definitions="$9"
-    local scope_table="${10}"
-    local deployed_role_assignments_by_principal="${11}"
-    local detailed_output="${12:-false}"
+    local replace_definitions="$3"
+    local role_definitions="$4"
+    local deployed_role_assignments_by_principal="${5}"
+    local detailed_output="${6:-false}"
+
+    # Large data read from $EPAC_TMP_DIR (written by build-deployment-plans.sh)
+    local deployed_assignments
+    deployed_assignments="$(cat "$EPAC_TMP_DIR/deployed_assignments.json")"
 
     local pac_owner_id
     pac_owner_id="$(echo "$pac_environment" | jq -r '.pacOwnerId')"
@@ -1499,9 +1506,12 @@ epac_build_assignment_plan() {
     local assignments_replace="{}"
     local assignments_delete="{}"
     local assignments_unchanged=0
-    local role_assignments_added="[]"
-    local role_assignments_updated="[]"
-    local role_assignments_removed="[]"
+
+    # Role assignment accumulators — use temp files to avoid "Argument list too long"
+    local _ra_added_file _ra_updated_file _ra_removed_file
+    _ra_added_file="$(mktemp)"
+    _ra_updated_file="$(mktemp)"
+    _ra_removed_file="$(mktemp)"
 
     # Collect all JSON/JSONC files
     if [[ ! -d "$assignments_root_folder" ]]; then
@@ -1509,7 +1519,8 @@ epac_build_assignment_plan() {
         _epac_emit_assignment_plan_result \
             "$assignments_new" "$assignments_update" "$assignments_replace" "$assignments_delete" \
             "$assignments_unchanged" \
-            "$role_assignments_added" "$role_assignments_updated" "$role_assignments_removed"
+            "[]" "[]" "[]"
+        rm -f "$_ra_added_file" "$_ra_updated_file" "$_ra_removed_file"
         return 0
     fi
 
@@ -1552,9 +1563,7 @@ epac_build_assignment_plan() {
         local tree_result
         tree_result="$(_epac_build_assignment_definition_node \
             "$pac_environment" "$root_def" "$file_content" \
-            "$combined_policy_details" "$policy_role_ids" "$role_definitions" \
-            "$policy_definitions_scopes" "$all_policy_definitions" "$all_policy_set_definitions" \
-            "$scope_table" "$flat_policy_list")"
+            "$role_definitions" "$policy_definitions_scopes" "$flat_policy_list")"
 
         local tree_errors
         tree_errors="$(echo "$tree_result" | jq -r '.hasErrors')"
@@ -1718,9 +1727,9 @@ epac_build_assignment_plan() {
                 id_added="$(echo "$identity_result" | jq '.added')"
                 id_updated="$(echo "$identity_result" | jq '.updated')"
                 id_removed="$(echo "$identity_result" | jq '.removed')"
-                [[ "$(echo "$id_added" | jq 'length')" -gt 0 ]] && role_assignments_added="$(jq -n --argjson a "$role_assignments_added" --argjson b "$id_added" '$a + $b')"
-                [[ "$(echo "$id_updated" | jq 'length')" -gt 0 ]] && role_assignments_updated="$(jq -n --argjson a "$role_assignments_updated" --argjson b "$id_updated" '$a + $b')"
-                [[ "$(echo "$id_removed" | jq 'length')" -gt 0 ]] && role_assignments_removed="$(jq -n --argjson a "$role_assignments_removed" --argjson b "$id_removed" '$a + $b')"
+                [[ "$(echo "$id_added" | jq 'length')" -gt 0 ]] && echo "$id_added" | jq -c '.[]' >> "$_ra_added_file"
+                [[ "$(echo "$id_updated" | jq 'length')" -gt 0 ]] && echo "$id_updated" | jq -c '.[]' >> "$_ra_updated_file"
+                [[ "$(echo "$id_removed" | jq 'length')" -gt 0 ]] && echo "$id_removed" | jq -c '.[]' >> "$_ra_removed_file"
 
                 if [[ ${#changes[@]} -eq 0 ]]; then
                     assignments_unchanged=$((assignments_unchanged + 1))
@@ -1751,7 +1760,7 @@ epac_build_assignment_plan() {
                     "null" "$desired" "false" "$deployed_role_assignments_by_principal")"
                 local new_added
                 new_added="$(echo "$new_identity_result" | jq '.added')"
-                [[ "$(echo "$new_added" | jq 'length')" -gt 0 ]] && role_assignments_added="$(jq -n --argjson a "$role_assignments_added" --argjson b "$new_added" '$a + $b')"
+                [[ "$(echo "$new_added" | jq 'length')" -gt 0 ]] && echo "$new_added" | jq -c '.[]' >> "$_ra_added_file"
             fi
 
             di=$((di + 1))
@@ -1784,9 +1793,28 @@ epac_build_assignment_plan() {
                 "$del_assignment" "null" "false" "$deployed_role_assignments_by_principal")"
             local del_removed
             del_removed="$(echo "$del_identity_result" | jq '.removed')"
-            [[ "$(echo "$del_removed" | jq 'length')" -gt 0 ]] && role_assignments_removed="$(jq -n --argjson a "$role_assignments_removed" --argjson b "$del_removed" '$a + $b')"
+            [[ "$(echo "$del_removed" | jq 'length')" -gt 0 ]] && echo "$del_removed" | jq -c '.[]' >> "$_ra_removed_file"
         fi
     done <<< "$del_keys"
+
+    # Assemble role assignment arrays from temp files
+    local role_assignments_added role_assignments_updated role_assignments_removed
+    if [[ -s "$_ra_added_file" ]]; then
+        role_assignments_added="$(jq -s '.' "$_ra_added_file")"
+    else
+        role_assignments_added="[]"
+    fi
+    if [[ -s "$_ra_updated_file" ]]; then
+        role_assignments_updated="$(jq -s '.' "$_ra_updated_file")"
+    else
+        role_assignments_updated="[]"
+    fi
+    if [[ -s "$_ra_removed_file" ]]; then
+        role_assignments_removed="$(jq -s '.' "$_ra_removed_file")"
+    else
+        role_assignments_removed="[]"
+    fi
+    rm -f "$_ra_added_file" "$_ra_updated_file" "$_ra_removed_file"
 
     _epac_emit_assignment_plan_result \
         "$assignments_new" "$assignments_update" "$assignments_replace" "$assignments_delete" \
@@ -1821,26 +1849,32 @@ _epac_emit_assignment_plan_result() {
     role_removed_count="$(echo "$role_removed" | jq 'length')"
     role_total=$((role_added_count + role_updated_count + role_removed_count))
 
+    # Use temp files for large args
+    local _t1 _t2 _t3 _t4 _t5 _t6 _t7
+    _t1="$(mktemp)"; _t2="$(mktemp)"; _t3="$(mktemp)"; _t4="$(mktemp)"; _t5="$(mktemp)"; _t6="$(mktemp)"; _t7="$(mktemp)"
+    echo "$new" > "$_t1"; echo "$update" > "$_t2"; echo "$replace" > "$_t3"
+    echo "$delete" > "$_t4"; echo "$role_added" > "$_t5"; echo "$role_updated" > "$_t6"; echo "$role_removed" > "$_t7"
     jq -n \
-        --argjson new "$new" \
-        --argjson update "$update" \
-        --argjson replace "$replace" \
-        --argjson delete "$delete" \
+        --slurpfile new "$_t1" \
+        --slurpfile update "$_t2" \
+        --slurpfile replace "$_t3" \
+        --slurpfile delete "$_t4" \
         --argjson unchanged "$unchanged" \
         --argjson totalChanges "$total_changes" \
-        --argjson roleAdded "$role_added" \
-        --argjson roleUpdated "$role_updated" \
-        --argjson roleRemoved "$role_removed" \
+        --slurpfile roleAdded "$_t5" \
+        --slurpfile roleUpdated "$_t6" \
+        --slurpfile roleRemoved "$_t7" \
         --argjson roleTotalChanges "$role_total" \
         '{
             assignments: {
-                new: $new, update: $update, replace: $replace, delete: $delete,
+                new: $new[0], update: $update[0], replace: $replace[0], delete: $delete[0],
                 numberUnchanged: $unchanged, numberOfChanges: $totalChanges
             },
             roleAssignments: {
-                added: $roleAdded, updated: $roleUpdated, removed: $roleRemoved,
+                added: $roleAdded[0], updated: $roleUpdated[0], removed: $roleRemoved[0],
                 numberOfChanges: $roleTotalChanges
             },
             numberTotalChanges: ($totalChanges + $roleTotalChanges)
         }'
+    rm -f "$_t1" "$_t2" "$_t3" "$_t4" "$_t5" "$_t6" "$_t7"
 }

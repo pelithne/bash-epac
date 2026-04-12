@@ -33,143 +33,18 @@ _epac_get_calculated_assignments() {
     local all_assignments="$1"
     local combined_policy_details="$2"
 
-    local by_assignment_id="{}"
-    local by_policy_set_id="{}"
-    local by_policy_id="{}"
-    local policy_set_refs_cache="{}"
+    local _tmp_asgn _tmp_details
+    _tmp_asgn="$(mktemp)"
+    _tmp_details="$(mktemp)"
+    echo "$all_assignments" > "$_tmp_asgn"
+    echo "$combined_policy_details" > "$_tmp_details"
 
-    local assignment_ids
-    assignment_ids="$(echo "$all_assignments" | jq -r 'keys[]')"
-    while IFS= read -r aid; do
-        [[ -z "$aid" ]] && continue
-        local assignment
-        assignment="$(echo "$all_assignments" | jq --arg id "$aid" '.[$id]')"
-        local props
-        props="$(echo "$assignment" | jq 'if .properties then .properties else . end')"
-        local assigned_def_id
-        assigned_def_id="$(echo "$props" | jq -r '.policyDefinitionId // empty')"
-        local scope
-        scope="$(echo "$assignment" | jq -r '.scope // empty')"
-        [[ -z "$scope" ]] && scope="$(echo "$props" | jq -r '.scope // empty')"
-        local name
-        name="$(echo "$assignment" | jq -r '.name // empty')"
-        local display_name
-        display_name="$(echo "$props" | jq -r '.displayName // empty')"
-        local not_scopes
-        not_scopes="$(echo "$props" | jq '.notScopes // []')"
-
-        local aid_lower="${assigned_def_id,,}"
-
-        if [[ "$aid_lower" == */providers/microsoft.authorization/policydefinitions/* ]]; then
-            # Direct policy assignment
-            local calc
-            calc="$(jq -n \
-                --arg id "$aid" --arg scope "$scope" --arg name "$name" --arg dn "$display_name" \
-                --arg defId "$assigned_def_id" --argjson notScopes "$not_scopes" \
-                '{
-                    id: $id, scope: $scope, name: $name, displayName: $dn,
-                    assignedPolicyDefinitionId: $defId,
-                    policyDefinitionId: $defId,
-                    isPolicyAssignment: true, allowReferenceIdsInRow: false,
-                    policyDefinitionReferenceIds: [], policyDefinitionIds: [],
-                    perPolicyReferenceIdTable: {}, notScopes: $notScopes
-                }')"
-            by_assignment_id="$(echo "$by_assignment_id" | jq --arg k "$aid" --argjson v "$calc" \
-                'if has($k) then .[$k] += [$v] else .[$k] = [$v] end')"
-            by_policy_id="$(echo "$by_policy_id" | jq --arg k "$assigned_def_id" --argjson v "$calc" \
-                'if has($k) then .[$k] += [$v] else .[$k] = [$v] end')"
-
-        elif [[ "$aid_lower" == */providers/microsoft.authorization/policysetdefinitions/* ]]; then
-            # Policy set assignment — resolve reference IDs
-            local refs_data
-            local has_cached
-            has_cached="$(echo "$policy_set_refs_cache" | jq --arg k "$assigned_def_id" 'has($k)')"
-            if [[ "$has_cached" == "true" ]]; then
-                refs_data="$(echo "$policy_set_refs_cache" | jq --arg k "$assigned_def_id" '.[$k]')"
-            else
-                # Build reference IDs from policy set details
-                refs_data="$(echo "$combined_policy_details" | jq --arg psid "$assigned_def_id" '
-                    (.policySets[$psid] // null) as $detail |
-                    if $detail == null then
-                        {policyDefinitionIds: [], policyDefinitionReferenceIds: [], perPolicyRefTable: {}}
-                    else
-                        ($detail.policyDefinitions // []) |
-                        reduce .[] as $pd (
-                            {policyDefinitionIds: [], policyDefinitionReferenceIds: [], perPolicyRefTable: {}};
-                            .policyDefinitionIds += [$pd.id] |
-                            .policyDefinitionReferenceIds += [$pd.policyDefinitionReferenceId] |
-                            (if .perPolicyRefTable[$pd.id] then
-                                .perPolicyRefTable[$pd.id].referenceIds += [$pd.policyDefinitionReferenceId]
-                            else
-                                .perPolicyRefTable[$pd.id] = {referenceIds: [$pd.policyDefinitionReferenceId]}
-                            end)
-                        )
-                    end
-                ')"
-                policy_set_refs_cache="$(echo "$policy_set_refs_cache" | jq --arg k "$assigned_def_id" --argjson v "$refs_data" '.[$k] = $v')"
-            fi
-
-            local pd_ids pd_ref_ids per_policy_table
-            pd_ids="$(echo "$refs_data" | jq '.policyDefinitionIds')"
-            pd_ref_ids="$(echo "$refs_data" | jq '.policyDefinitionReferenceIds')"
-            per_policy_table="$(echo "$refs_data" | jq '.perPolicyRefTable')"
-
-            # Main calculated assignment for the policy set
-            local calc_set
-            calc_set="$(jq -n \
-                --arg id "$aid" --arg scope "$scope" --arg name "$name" --arg dn "$display_name" \
-                --arg defId "$assigned_def_id" --argjson notScopes "$not_scopes" \
-                --argjson pdIds "$pd_ids" --argjson pdRefIds "$pd_ref_ids" \
-                --argjson pprt "$per_policy_table" \
-                '{
-                    id: $id, scope: $scope, name: $name, displayName: $dn,
-                    assignedPolicyDefinitionId: $defId,
-                    policyDefinitionId: null,
-                    isPolicyAssignment: false, allowReferenceIdsInRow: true,
-                    policyDefinitionReferenceIds: $pdRefIds,
-                    policyDefinitionIds: $pdIds,
-                    perPolicyReferenceIdTable: $pprt,
-                    notScopes: $notScopes
-                }')"
-            by_assignment_id="$(echo "$by_assignment_id" | jq --arg k "$aid" --argjson v "$calc_set" \
-                'if has($k) then .[$k] += [$v] else .[$k] = [$v] end')"
-            by_policy_set_id="$(echo "$by_policy_set_id" | jq --arg k "$assigned_def_id" --argjson v "$calc_set" \
-                'if has($k) then .[$k] += [$v] else .[$k] = [$v] end')"
-
-            # Per-policy calculated assignments
-            local pd_count
-            pd_count="$(echo "$pd_ids" | jq 'length')"
-            local pi=0
-            while [[ $pi -lt $pd_count ]]; do
-                local this_pid
-                this_pid="$(echo "$pd_ids" | jq -r --argjson i "$pi" '.[$i]')"
-                local this_refs
-                this_refs="$(echo "$per_policy_table" | jq --arg k "$this_pid" '.[$k].referenceIds // []')"
-                local calc_pol
-                calc_pol="$(jq -n \
-                    --arg id "$aid" --arg scope "$scope" --arg name "$name" --arg dn "$display_name" \
-                    --arg defId "$assigned_def_id" --arg pid "$this_pid" \
-                    --argjson notScopes "$not_scopes" --argjson refs "$this_refs" \
-                    --argjson pprt "$per_policy_table" \
-                    '{
-                        id: $id, scope: $scope, name: $name, displayName: $dn,
-                        assignedPolicyDefinitionId: $defId,
-                        policyDefinitionId: $pid,
-                        isPolicyAssignment: false, allowReferenceIdsInRow: false,
-                        policyDefinitionReferenceIds: $refs,
-                        policyDefinitionIds: [],
-                        perPolicyReferenceIdTable: $pprt,
-                        notScopes: $notScopes
-                    }')"
-                by_policy_id="$(echo "$by_policy_id" | jq --arg k "$this_pid" --argjson v "$calc_pol" \
-                    'if has($k) then .[$k] += [$v] else .[$k] = [$v] end')"
-                pi=$((pi + 1))
-            done
-        fi
-    done <<< "$assignment_ids"
-
-    jq -n --argjson a "$by_assignment_id" --argjson ps "$by_policy_set_id" --argjson p "$by_policy_id" \
-        '{byAssignmentId: $a, byPolicySetId: $ps, byPolicyId: $p}'
+    jq -f "${_EPAC_EXPLAN_DIR}/../jq/calculated-assignments.jq" \
+        --slurpfile details "$_tmp_details" \
+        "$_tmp_asgn"
+    local rc=$?
+    rm -f "$_tmp_asgn" "$_tmp_details"
+    return $rc
 }
 
 ###############################################################################
