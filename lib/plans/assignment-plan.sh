@@ -1020,6 +1020,10 @@ _epac_build_assignment_definition_at_leaf() {
         local final_parameters
         final_parameters="$(_epac_build_assignment_parameter_object "$parameters" "$definition_params")"
 
+        # Definition version
+        local definition_version
+        definition_version="$(echo "$assignment_def" | jq -r '.definitionVersion // empty')"
+
         # Build base assignment
         local base_assignment
         base_assignment="$(jq -n \
@@ -1036,6 +1040,7 @@ _epac_build_assignment_definition_at_leaf() {
             --argjson identReq "$identity_required" \
             --argjson ident "$identity_obj" \
             --arg mil "$managed_identity_location" \
+            --arg defVer "$definition_version" \
             '{
                 name: $name,
                 displayName: $dn,
@@ -1049,7 +1054,8 @@ _epac_build_assignment_definition_at_leaf() {
                 resourceSelectors: $rsel,
                 identityRequired: $identReq,
                 identity: $ident,
-                managedIdentityLocation: $mil
+                managedIdentityLocation: $mil,
+                definitionVersion: (if $defVer == "" then null else $defVer end)
             }')"
 
         # Iterate over scopes
@@ -1296,6 +1302,13 @@ _epac_build_assignment_definition_node() {
     rsel_node="$(echo "$node_object" | jq '.resourceSelectors // null')"
     if [[ "$rsel_node" != "null" ]]; then
         def="$(echo "$def" | jq --argjson rs "$rsel_node" '.resourceSelectors = ((.resourceSelectors // []) + $rs)')"
+    fi
+
+    # Definition version (deeper wins)
+    local dv_node
+    dv_node="$(echo "$node_object" | jq -r '.definitionVersion // empty')"
+    if [[ -n "$dv_node" ]]; then
+        def="$(echo "$def" | jq --arg dv "$dv_node" '.definitionVersion = $dv')"
     fi
 
     # Additional role assignments (accumulate, pac-selector-aware)
@@ -1560,6 +1573,7 @@ epac_build_assignment_plan() {
             scopeCollection: {},
             managedIdentityLocation: "global",
             userAssignedIdentity: null,
+            definitionVersion: null,
             csvParameterArray: null,
             csvRowsValidated: false
         }')"
@@ -1650,11 +1664,11 @@ epac_build_assignment_plan() {
                     not_scopes_match="false"
                 fi
 
-                # Non-compliance messages
+                # Non-compliance messages (strip null-valued fields added by Resource Graph)
                 local ncm_match="true"
                 if ! epac_deep_equal \
-                    "$(echo "$deployed_props" | jq '.nonComplianceMessages // []')" \
-                    "$(echo "$desired" | jq '.nonComplianceMessages // []')"; then
+                    "$(echo "$deployed_props" | jq '[(.nonComplianceMessages // [])[] | with_entries(select(.value != null))]')" \
+                    "$(echo "$desired" | jq '[(.nonComplianceMessages // [])[] | with_entries(select(.value != null))]')"; then
                     ncm_match="false"
                 fi
 
