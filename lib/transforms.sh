@@ -713,48 +713,34 @@ epac_convert_policy_set_to_details() {
 # Sequential (no parallelism needed — jq is fast enough)
 
 epac_convert_policy_resources_to_details() {
-    local all_policy_definitions="$1"       # JSON object: { id: def, ... }
-    local all_policy_set_definitions="$2"   # JSON object: { id: setDef, ... }
+    local all_policy_definitions_file="$1"  # Temp file path containing JSON { id: def, ... }
+    local all_policy_set_defs_file="$2"     # Temp file path containing JSON { id: setDef, ... }
+    local _jq_dir
+    _jq_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/jq"
 
     epac_write_section "Pre-calculating Policy Parameters" 0 >&2
 
-    # Process policy definitions
-    local policy_details="{}"
-    local policy_keys
-    policy_keys="$(echo "$all_policy_definitions" | jq -r 'keys[]')"
-    local policy_count=0
-    while IFS= read -r policy_id; do
-        [[ -z "$policy_id" ]] && continue
-        local policy_def
-        policy_def="$(echo "$all_policy_definitions" | jq --arg id "$policy_id" '.[$id]')"
-        local detail
-        detail="$(epac_convert_policy_to_details "$policy_id" "$policy_def")"
-        if [[ -n "$detail" && "$detail" != "null" ]]; then
-            policy_details="$(echo "$policy_details" | jq --arg id "$policy_id" --argjson d "$detail" '.[$id] = $d')"
-        fi
-        policy_count=$((policy_count + 1))
-    done <<< "$policy_keys"
+    # Phase 1: Process all policy definitions in a single jq call
+    local _tmp_details _tmp_ps_details
+    _tmp_details="$(mktemp)"; _tmp_ps_details="$(mktemp)"
+
+    jq -f "$_jq_dir/convert-policy-to-details.jq" "$all_policy_definitions_file" > "$_tmp_details"
+    local policy_count
+    policy_count="$(jq 'length' "$_tmp_details")"
     epac_write_status "Processed ${policy_count} policy definitions" "success" 2 >&2
 
-    # Process policy set definitions
-    local policy_set_details="{}"
-    local psd_keys
-    psd_keys="$(echo "$all_policy_set_definitions" | jq -r 'keys[]')"
-    local psd_count=0
-    while IFS= read -r psd_id; do
-        [[ -z "$psd_id" ]] && continue
-        local psd_def
-        psd_def="$(echo "$all_policy_set_definitions" | jq --arg id "$psd_id" '.[$id]')"
-        local psd_detail
-        psd_detail="$(epac_convert_policy_set_to_details "$psd_id" "$psd_def" "$policy_details")"
-        if [[ -n "$psd_detail" && "$psd_detail" != "null" ]]; then
-            policy_set_details="$(echo "$policy_set_details" | jq --arg id "$psd_id" --argjson d "$psd_detail" '.[$id] = $d')"
-        fi
-        psd_count=$((psd_count + 1))
-    done <<< "$psd_keys"
+    # Phase 2: Process all policy set definitions in a single jq call
+    jq --slurpfile pd "$_tmp_details" \
+        -f "$_jq_dir/convert-policy-set-to-details.jq" "$all_policy_set_defs_file" > "$_tmp_ps_details"
+    local psd_count
+    psd_count="$(jq 'length' "$_tmp_ps_details")"
     epac_write_status "Processed ${psd_count} policy set definitions" "success" 2 >&2
 
-    jq -n --argjson p "$policy_details" --argjson ps "$policy_set_details" '{policies: $p, policySets: $ps}'
+    # Combine results
+    jq -n --slurpfile p "$_tmp_details" --slurpfile ps "$_tmp_ps_details" \
+        '{policies: $p[0], policySets: $ps[0]}'
+
+    rm -f "$_tmp_details" "$_tmp_ps_details"
 }
 
 ###############################################################################

@@ -213,89 +213,76 @@ if [[ "$build_any" == "true" ]]; then
     epac_write_section "Fetching Deployed Policy Resources" 0
     deployed_resources="$(epac_get_policy_resources "$pac_environment" "$scope_table" "$local_skip_exemptions" "$local_skip_roles")"
 
-    # Extract deployed resource sections
-    deployed_policy_defs="$(echo "$deployed_resources" | jq '.policydefinitions // {managed:{},readOnly:{},all:{}}')"
-    deployed_policy_set_defs="$(echo "$deployed_resources" | jq '.policysetdefinitions // {managed:{},readOnly:{},all:{}}')"
+    # Extract deployed resource sections to temp files (too large for shell variables as args)
+    _tmp_defs="$(mktemp)"
+    _tmp_set_defs="$(mktemp)"
+    trap 'rm -f "$_tmp_defs" "$_tmp_set_defs"' EXIT
+    echo "$deployed_resources" | jq '.policydefinitions // {managed:{},readOnly:{},all:{}}' > "$_tmp_defs"
+    echo "$deployed_resources" | jq '.policysetdefinitions // {managed:{},readOnly:{},all:{}}' > "$_tmp_set_defs"
     deployed_assignments="$(echo "$deployed_resources" | jq '.policyassignments // {managed:{},readOnly:{}}')"
     deployed_exemptions="$(echo "$deployed_resources" | jq '.policyexemptions // {managed:{},readOnly:{}}')"
     deployed_role_assignments="$(echo "$deployed_resources" | jq '.roleAssignmentsByPrincipalId // {}')"
+    unset deployed_resources
 
-    # Pre-populate role IDs from read-only policy definitions
-    local ro_keys
-    ro_keys="$(echo "$deployed_policy_defs" | jq -r '.readOnly | keys[]' 2>/dev/null || true)"
-    while IFS= read -r pid; do
-        [[ -z "$pid" ]] && continue
-        local rd
-        rd="$(echo "$deployed_policy_defs" | jq --arg id "$pid" '.readOnly[$id]')"
-        local role_ids
-        role_ids="$(epac_get_policy_resource_properties "$rd" | jq '.policyRule.then.details.roleDefinitionIds // null')"
-        if [[ "$role_ids" != "null" ]]; then
-            policy_role_ids="$(echo "$policy_role_ids" | jq --arg id "$pid" --argjson r "$role_ids" '.[$id] = $r')"
-        fi
-    done <<< "$ro_keys"
+    # Pre-populate role IDs from read-only policy definitions (single jq pass)
+    policy_role_ids="$(jq '
+        .readOnly | to_entries | reduce .[] as $e ({};
+            ($e.value | (if .properties then .properties else . end)
+                | .policyRule.then.details
+                | if type == "array" then .[].roleDefinitionIds // empty
+                  elif type == "object" then .roleDefinitionIds // null
+                  else null end) as $roles |
+            if $roles != null then .[$e.key] = $roles else . end
+        )' "$_tmp_defs")"
 
     # Populate allDefinitions with all deployed policy definitions
-    all_definitions="$(echo "$all_definitions" | jq --argjson all "$(echo "$deployed_policy_defs" | jq '.all // {}')" \
-        '.policydefinitions = (.policydefinitions + $all)')"
+    _tmp_all_from_defs="$(mktemp)"
+    jq '.all // {}' "$_tmp_defs" > "$_tmp_all_from_defs"
+    all_definitions="$(echo "$all_definitions" | jq --slurpfile all "$_tmp_all_from_defs" \
+        '.policydefinitions = (.policydefinitions + $all[0])')"
+    rm -f "$_tmp_all_from_defs"
 
     # ── Policy Definitions Plan ──
     if [[ "$build_policy_definitions" == "true" ]]; then
         epac_write_section "Building Policy Definitions Plan" 0
-        local pd_result
         pd_result="$(epac_build_policy_plan "$policy_definitions_folder" "$pac_environment" \
-            "$deployed_policy_defs" "$all_definitions" "$replace_definitions" "$policy_role_ids" "$detailed_output")"
+            "$(cat "$_tmp_defs")" "$all_definitions" "$replace_definitions" "$policy_role_ids" "$detailed_output")"
         policy_plan_defs="$(echo "$pd_result" | jq '.definitions')"
         all_definitions="$(echo "$pd_result" | jq '.allDefinitions')"
         replace_definitions="$(echo "$pd_result" | jq '.replaceDefinitions')"
         policy_role_ids="$(echo "$pd_result" | jq '.policyRoleIds')"
     fi
 
-    # Pre-populate role IDs from read-only policy set definitions
-    ro_keys="$(echo "$deployed_policy_set_defs" | jq -r '.readOnly | keys[]' 2>/dev/null || true)"
-    while IFS= read -r psid; do
-        [[ -z "$psid" ]] && continue
-        local psd_props
-        psd_props="$(echo "$deployed_policy_set_defs" | jq --arg id "$psid" '.readOnly[$id]' | jq 'if .properties then .properties else . end')"
-        local role_set="{}"
-        local pd_array
-        pd_array="$(echo "$psd_props" | jq '.policyDefinitions // []')"
-        local pdi=0
-        local pd_len
-        pd_len="$(echo "$pd_array" | jq 'length')"
-        while [[ $pdi -lt $pd_len ]]; do
-            local member_pid
-            member_pid="$(echo "$pd_array" | jq -r --argjson i "$pdi" '.[$i].policyDefinitionId')"
-            local has_roles
-            has_roles="$(echo "$policy_role_ids" | jq --arg id "$member_pid" 'has($id)')"
-            if [[ "$has_roles" == "true" ]]; then
-                local member_roles
-                member_roles="$(echo "$policy_role_ids" | jq --arg id "$member_pid" '.[$id][]' -r)"
-                while IFS= read -r rid; do
-                    [[ -z "$rid" ]] && continue
-                    role_set="$(echo "$role_set" | jq --arg r "$rid" '.[$r] = "added"')"
-                done <<< "$member_roles"
-            fi
-            pdi=$((pdi + 1))
-        done
-        local role_count
-        role_count="$(echo "$role_set" | jq 'length')"
-        if [[ $role_count -gt 0 ]]; then
-            local role_array
-            role_array="$(echo "$role_set" | jq 'keys')"
-            policy_role_ids="$(echo "$policy_role_ids" | jq --arg id "$psid" --argjson r "$role_array" '.[$id] = $r')"
-        fi
-    done <<< "$ro_keys"
+    # Pre-populate role IDs from read-only policy set definitions (single jq pass)
+    _tmp_role_ids="$(mktemp)"
+    echo "$policy_role_ids" > "$_tmp_role_ids"
+    policy_role_ids="$(jq --slurpfile base "$_tmp_role_ids" '
+        $base[0] as $b |
+        (.readOnly // {}) | to_entries | reduce .[] as $e ($b;
+            ($e.value | (if .properties then .properties else . end)
+                | .policyDefinitions // []) as $members |
+            ($members | reduce .[] as $m ({};
+                ($m.policyDefinitionId) as $mid |
+                if $b[$mid] != null then
+                    ($b[$mid] | .[] | {(.): "added"}) as $r | . + $r
+                else . end
+            ) | keys) as $merged_roles |
+            if ($merged_roles | length) > 0 then .[$e.key] = $merged_roles else . end
+        )' "$_tmp_set_defs")"
+    rm -f "$_tmp_role_ids"
 
     # Populate allDefinitions with all deployed policy set definitions
-    all_definitions="$(echo "$all_definitions" | jq --argjson all "$(echo "$deployed_policy_set_defs" | jq '.all // {}')" \
-        '.policysetdefinitions = (.policysetdefinitions + $all)')"
+    _tmp_all_from_set_defs="$(mktemp)"
+    jq '.all // {}' "$_tmp_set_defs" > "$_tmp_all_from_set_defs"
+    all_definitions="$(echo "$all_definitions" | jq --slurpfile all "$_tmp_all_from_set_defs" \
+        '.policysetdefinitions = (.policysetdefinitions + $all[0])')"
+    rm -f "$_tmp_all_from_set_defs"
 
     # ── Policy Set Definitions Plan ──
     if [[ "$build_policy_set_definitions" == "true" ]]; then
         epac_write_section "Building Policy Set Definitions Plan" 0
-        local psd_result
         psd_result="$(epac_build_policy_set_plan "$policy_set_definitions_folder" "$pac_environment" \
-            "$deployed_policy_set_defs" "$all_definitions" "$replace_definitions" "$policy_role_ids" "$detailed_output")"
+            "$(cat "$_tmp_set_defs")" "$all_definitions" "$replace_definitions" "$policy_role_ids" "$detailed_output")"
         policy_set_plan_defs="$(echo "$psd_result" | jq '.definitions')"
         all_definitions="$(echo "$psd_result" | jq '.allDefinitions')"
         replace_definitions="$(echo "$psd_result" | jq '.replaceDefinitions')"
@@ -304,29 +291,37 @@ if [[ "$build_any" == "true" ]]; then
 
     # ── Combined Policy Details ──
     epac_write_section "Pre-calculating Policy Details" 0
+    # Write large data to temp files for assignment plan (avoids Argument list too long)
+    export EPAC_TMP_DIR; EPAC_TMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "$EPAC_TMP_DIR" "$_tmp_defs" "$_tmp_set_defs"' EXIT
+    echo "$all_definitions" | jq '.policydefinitions' > "$EPAC_TMP_DIR/all_policy_defs.json"
+    echo "$all_definitions" | jq '.policysetdefinitions' > "$EPAC_TMP_DIR/all_policy_set_defs.json"
     combined_policy_details="$(epac_convert_policy_resources_to_details \
-        "$(echo "$all_definitions" | jq '.policydefinitions')" \
-        "$(echo "$all_definitions" | jq '.policysetdefinitions')")"
+        "$EPAC_TMP_DIR/all_policy_defs.json" "$EPAC_TMP_DIR/all_policy_set_defs.json")"
+    echo "$combined_policy_details" > "$EPAC_TMP_DIR/combined_policy_details.json"
+    echo "$deployed_assignments" > "$EPAC_TMP_DIR/deployed_assignments.json"
+    echo "$scope_table" > "$EPAC_TMP_DIR/scope_table.json"
+    echo "$policy_role_ids" > "$EPAC_TMP_DIR/policy_role_ids.json"
+    echo "$deployed_exemptions" > "$EPAC_TMP_DIR/deployed_exemptions.json"
+    echo "$all_definitions" > "$EPAC_TMP_DIR/all_definitions.json"
 
     # Populate allAssignments
-    local managed_assignments
-    managed_assignments="$(echo "$deployed_assignments" | jq '.managed // {}')"
-    all_assignments="$(echo "$all_assignments" | jq --argjson m "$managed_assignments" '. + $m')"
+    _tmp_managed="$(mktemp)"
+    echo "$deployed_assignments" | jq '.managed // {}' > "$_tmp_managed"
+    all_assignments="$(echo "$all_assignments" | jq --slurpfile m "$_tmp_managed" '. + $m[0]')"
+    rm -f "$_tmp_managed"
 
     # ── Assignment Plan ──
     if [[ "$build_policy_assignments" == "true" ]]; then
         epac_write_section "Building Assignment Plan" 0
         # Determine role definitions (simplified - map scopeTable roleDefinitions)
-        local role_definitions="{}"
+        role_definitions="{}"
         assignment_plan_result="$(epac_build_assignment_plan \
-            "$policy_assignments_folder" "$pac_environment" "$deployed_assignments" \
-            "$(echo "$all_definitions" | jq '.policydefinitions')" \
-            "$(echo "$all_definitions" | jq '.policysetdefinitions')" \
-            "$combined_policy_details" "$replace_definitions" "$policy_role_ids" \
-            "$role_definitions" "$scope_table" "$deployed_role_assignments" "$detailed_output")"
+            "$policy_assignments_folder" "$pac_environment" \
+            "$replace_definitions" \
+            "$role_definitions" "$deployed_role_assignments" "$detailed_output")"
 
         # Merge any new all_assignments from the plan
-        local plan_all_assignments
         plan_all_assignments="$(echo "$assignment_plan_result" | jq '.allAssignments // {}')"
         if [[ "$plan_all_assignments" != "{}" && "$plan_all_assignments" != "null" ]]; then
             all_assignments="$(echo "$all_assignments" | jq --argjson p "$plan_all_assignments" '. + $p')"
@@ -336,7 +331,6 @@ if [[ "$build_any" == "true" ]]; then
     # ── Exemptions Plan ──
     if [[ "$build_policy_exemptions" == "true" ]]; then
         epac_write_section "Building Exemptions Plan" 0
-        local replaced_assignments
         replaced_assignments="$(echo "$assignment_plan_result" | jq '.assignments.replace // {}')"
         exemption_plan_result="$(epac_build_exemptions_plan \
             "$policy_exemptions_folder_env" "$pac_environment" "$scope_table" \
@@ -349,7 +343,6 @@ if [[ "$build_any" == "true" ]]; then
     epac_write_header "EPAC Deployment Plan Summary" "Policy as Code Resource Analysis"
 
     if [[ "$build_policy_definitions" == "true" ]]; then
-        local pd_new pd_upd pd_rep pd_del pd_unc pd_chg
         pd_new="$(echo "$policy_plan_defs" | jq '.new | length')"
         pd_upd="$(echo "$policy_plan_defs" | jq '.update | length')"
         pd_rep="$(echo "$policy_plan_defs" | jq '.replace | length')"
@@ -360,7 +353,6 @@ if [[ "$build_any" == "true" ]]; then
     fi
 
     if [[ "$build_policy_set_definitions" == "true" ]]; then
-        local psd_new psd_upd psd_rep psd_del psd_unc psd_chg
         psd_new="$(echo "$policy_set_plan_defs" | jq '.new | length')"
         psd_upd="$(echo "$policy_set_plan_defs" | jq '.update | length')"
         psd_rep="$(echo "$policy_set_plan_defs" | jq '.replace | length')"
@@ -371,9 +363,7 @@ if [[ "$build_any" == "true" ]]; then
     fi
 
     if [[ "$build_policy_assignments" == "true" ]]; then
-        local a_plan
         a_plan="$(echo "$assignment_plan_result" | jq '.assignments')"
-        local a_new a_upd a_rep a_del a_unc a_chg
         a_new="$(echo "$a_plan" | jq '.new | length')"
         a_upd="$(echo "$a_plan" | jq '.update | length')"
         a_rep="$(echo "$a_plan" | jq '.replace | length')"
@@ -382,9 +372,7 @@ if [[ "$build_any" == "true" ]]; then
         a_chg="$(echo "$a_plan" | jq '.numberOfChanges')"
         epac_write_status "Assignments: ${a_chg} changes (new:${a_new} upd:${a_upd} rep:${a_rep} del:${a_del}) unchanged:${a_unc}" "info" 2
 
-        local r_plan
         r_plan="$(echo "$assignment_plan_result" | jq '.roleAssignments')"
-        local r_add r_upd r_rem r_chg
         r_add="$(echo "$r_plan" | jq '.added | length')"
         r_upd="$(echo "$r_plan" | jq '.updated | length')"
         r_rem="$(echo "$r_plan" | jq '.removed | length')"
@@ -393,9 +381,7 @@ if [[ "$build_any" == "true" ]]; then
     fi
 
     if [[ "$build_policy_exemptions" == "true" ]]; then
-        local ex_plan
         ex_plan="$(echo "$exemption_plan_result" | jq '.exemptions')"
-        local e_new e_upd e_rep e_del e_unc e_chg e_orp e_exp
         e_new="$(echo "$ex_plan" | jq '.new | length')"
         e_upd="$(echo "$ex_plan" | jq '.update | length')"
         e_rep="$(echo "$ex_plan" | jq '.replace | length')"
@@ -414,54 +400,65 @@ fi
 
 epac_write_section "Deployment Plan Output" 0
 
-# Assemble policyPlan
-policy_plan="$(jq -n \
+# Write plan components to temp files to avoid Argument list too long
+_t_pd="$(mktemp)"; echo "$policy_plan_defs" > "$_t_pd"
+_t_psd="$(mktemp)"; echo "$policy_set_plan_defs" > "$_t_psd"
+_t_assign="$(mktemp)"; echo "$assignment_plan_result" | jq '.assignments' > "$_t_assign"
+_t_exempt="$(mktemp)"; echo "$exemption_plan_result" | jq '.exemptions' > "$_t_exempt"
+_t_roles="$(mktemp)"; echo "$assignment_plan_result" | jq '.roleAssignments' > "$_t_roles"
+
+# Assemble policyPlan via temp files
+policy_plan_output_tmp="$(mktemp)"
+jq -n \
     --arg ts "$timestamp" --arg pid "$pac_owner_id" \
-    --argjson pd "$policy_plan_defs" \
-    --argjson psd "$policy_set_plan_defs" \
-    --argjson a "$(echo "$assignment_plan_result" | jq '.assignments')" \
-    --argjson ex "$(echo "$exemption_plan_result" | jq '.exemptions')" \
+    --slurpfile pd "$_t_pd" \
+    --slurpfile psd "$_t_psd" \
+    --slurpfile a "$_t_assign" \
+    --slurpfile ex "$_t_exempt" \
     '{
         createdOn: $ts, pacOwnerId: $pid,
-        policyDefinitions: $pd, policySetDefinitions: $psd,
-        assignments: $a, exemptions: $ex
-    }')"
-
-# Assemble rolesPlan
-roles_plan="$(jq -n \
-    --arg ts "$timestamp" --arg pid "$pac_owner_id" \
-    --argjson ra "$(echo "$assignment_plan_result" | jq '.roleAssignments')" \
-    '{createdOn: $ts, pacOwnerId: $pid, roleAssignments: $ra}')"
+        policyDefinitions: $pd[0], policySetDefinitions: $psd[0],
+        assignments: $a[0], exemptions: $ex[0]
+    }' > "$policy_plan_output_tmp"
 
 # Count total policy changes
-policy_changes="$(echo "$policy_plan" | jq '
+policy_changes="$(jq '
     (.policyDefinitions.numberOfChanges // 0) +
     (.policySetDefinitions.numberOfChanges // 0) +
     (.assignments.numberOfChanges // 0) +
-    (.exemptions.numberOfChanges // 0)')"
+    (.exemptions.numberOfChanges // 0)' "$policy_plan_output_tmp")"
 
 policy_stage="no"
 if [[ $policy_changes -gt 0 ]]; then
     epac_write_status "Policy deployment plan created: ${policy_plan_output}" "success" 2
     mkdir -p "$(dirname "$policy_plan_output")"
-    echo "$policy_plan" | jq '.' > "$policy_plan_output"
+    cp "$policy_plan_output_tmp" "$policy_plan_output"
     policy_stage="yes"
 else
     epac_write_status "Policy deployment stage skipped - no changes detected" "skip" 2
     [[ -f "$policy_plan_output" ]] && rm -f "$policy_plan_output"
 fi
 
-role_changes="$(echo "$roles_plan" | jq '.roleAssignments.numberOfChanges // 0')"
+# Assemble rolesPlan via temp files
+roles_plan_output_tmp="$(mktemp)"
+jq -n \
+    --arg ts "$timestamp" --arg pid "$pac_owner_id" \
+    --slurpfile ra "$_t_roles" \
+    '{createdOn: $ts, pacOwnerId: $pid, roleAssignments: $ra[0]}' > "$roles_plan_output_tmp"
+
+role_changes="$(jq '.roleAssignments.numberOfChanges // 0' "$roles_plan_output_tmp")"
 role_stage="no"
 if [[ $role_changes -gt 0 ]]; then
     epac_write_status "Role assignment plan created: ${roles_plan_output}" "success" 2
     mkdir -p "$(dirname "$roles_plan_output")"
-    echo "$roles_plan" | jq '.' > "$roles_plan_output"
+    cp "$roles_plan_output_tmp" "$roles_plan_output"
     role_stage="yes"
 else
     epac_write_status "Role assignment stage skipped - no changes detected" "skip" 2
     [[ -f "$roles_plan_output" ]] && rm -f "$roles_plan_output"
 fi
+
+rm -f "$_t_pd" "$_t_psd" "$_t_assign" "$_t_exempt" "$_t_roles" "$policy_plan_output_tmp" "$roles_plan_output_tmp"
 
 ###############################################################################
 # DevOps variable output
