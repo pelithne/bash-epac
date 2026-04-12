@@ -677,9 +677,11 @@ epac_get_policy_or_set_definitions() {
         if ($lower | startswith("/providers/microsoft.authorization/")) then
             ""  # built-in
         elif ($lower | contains("/providers/microsoft.authorization/policydefinitions/")) then
-            . | split("/providers/")[0]
+            ($lower | split("/providers/microsoft.authorization/")[0]) as $scope |
+            . | .[:($scope | length)]
         elif ($lower | contains("/providers/microsoft.authorization/policysetdefinitions/")) then
-            . | split("/providers/")[0]
+            ($lower | split("/providers/microsoft.authorization/")[0]) as $scope |
+            . | .[:($scope | length)]
         else
             ""
         end;
@@ -700,6 +702,7 @@ epac_get_policy_or_set_definitions() {
 
     ($deployment_root_scope | ascii_downcase) as $root_lower |
     ($excluded_scopes | map(ascii_downcase)) as $excl_scopes_lower |
+    ($scope_table | with_entries(.key |= ascii_downcase)) as $scope_table_lower |
 
     reduce .[] as $resource (
         {all: {}, readOnly: {}, managed: {}, counters: {builtIn: 0, inherited: 0, managedBy: {thisPaC: 0, otherPaC: 0, unknown: 0}, excluded: 0, unmanagedScopes: 0}};
@@ -714,7 +717,7 @@ epac_get_policy_or_set_definitions() {
             ($scope | ascii_downcase) as $scope_lower |
 
             # Check exclusions
-            if ($scope != "" and ($scope_table | has($scope) | not)) then
+            if ($scope != "" and ($scope_table_lower | has($scope_lower) | not)) then
                 .counters.excluded += 1
             elif ($scope != "" and ($excl_scopes_lower | any(. == $scope_lower))) then
                 .counters.excluded += 1
@@ -772,7 +775,8 @@ epac_get_policy_assignments() {
     def get_scope_from_id:
         (. | ascii_downcase) as $lower |
         if ($lower | contains("/providers/microsoft.authorization/policyassignments/")) then
-            . | split("/providers/")[0]
+            ($lower | split("/providers/microsoft.authorization/")[0]) as $scope |
+            . | .[:($scope | length)]
         else ""
         end;
 
@@ -794,6 +798,7 @@ epac_get_policy_assignments() {
         end;
 
     ($excluded_scopes | map(ascii_downcase)) as $excl_scopes_lower |
+    ($scope_table | with_entries(.key |= ascii_downcase)) as $scope_table_lower |
 
     reduce .[] as $resource (
         {managed: {}, counters: {managedBy: {thisPaC: 0, otherPaC: 0, microsoft: 0, dfcSecurityPolicies: 0, dfcDefenderPlans: 0, unknown: 0}, excluded: 0, unmanagedScopes: 0}, principalIds: []};
@@ -806,7 +811,7 @@ epac_get_policy_assignments() {
             ($rid | get_scope_from_id) as $scope |
             ($scope | ascii_downcase) as $scope_lower |
 
-            if ($scope != "" and ($scope_table | has($scope) | not)) then
+            if ($scope != "" and ($scope_table_lower | has($scope_lower) | not)) then
                 .counters.excluded += 1
             elif ($scope != "" and ($excl_scopes_lower | any(. == $scope_lower))) then
                 .counters.excluded += 1
@@ -938,7 +943,8 @@ epac_get_policy_exemptions() {
     def get_scope_from_id:
         (. | ascii_downcase) as $lower |
         if ($lower | contains("/providers/microsoft.authorization/policyexemptions/")) then
-            . | split("/providers/")[0]
+            ($lower | split("/providers/microsoft.authorization/")[0]) as $scope |
+            . | .[:($scope | length)]
         else ""
         end;
 
@@ -951,6 +957,7 @@ epac_get_policy_exemptions() {
         end;
 
     ($excluded_scopes | map(ascii_downcase)) as $excl_scopes_lower |
+    ($scope_table | with_entries(.key |= ascii_downcase)) as $scope_table_lower |
 
     # Parse now_iso to epoch-ish days for comparison
     ($now_iso | split("T")[0]) as $today |
@@ -969,7 +976,7 @@ epac_get_policy_exemptions() {
             ($test_id | get_scope_from_id) as $test_scope |
             ($test_scope | ascii_downcase) as $test_scope_lower |
 
-            if ($test_scope != "" and ($scope_table | has($test_scope) | not)) then
+            if ($test_scope != "" and ($scope_table_lower | has($test_scope_lower) | not)) then
                 .counters.excluded += 1
             elif ($test_scope != "" and ($excl_scopes_lower | any(. == $test_scope_lower))) then
                 .counters.excluded += 1
