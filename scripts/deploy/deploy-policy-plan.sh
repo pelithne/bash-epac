@@ -60,7 +60,7 @@ script_start_time="$(date +%s)"
 
 epac_write_header "Enterprise Policy as Code (EPAC)" "Deploying Policy Plan"
 
-pac_environment="$(epac_select_pac_environment "$pac_environment_selector" "$definitions_root_folder" "$input_folder" "$interactive")"
+pac_environment="$(epac_select_pac_environment "$pac_environment_selector" "$definitions_root_folder" "" "$input_folder" "$interactive")"
 
 pac_selector="$(echo "$pac_environment" | jq -r '.pacSelector')"
 tenant_id="$(echo "$pac_environment" | jq -r '.tenantId')"
@@ -88,74 +88,78 @@ if [[ ! -f "$plan_file" ]]; then
     exit 0
 fi
 
-plan="$(jq '.' "$plan_file")"
 epac_write_section "Deployment Plan Loaded" 0
 epac_write_status "Plan file: ${plan_file}" "success" 2
-epac_write_status "Plan created on: $(echo "$plan" | jq -r '.createdOn')" "info" 2
+epac_write_status "Plan created on: $(jq -r '.createdOn' "$plan_file")" "info" 2
+
+# Extract plan sections to temp files (plan can be >300KB, too large for shell vars)
+_deploy_tmp="$(mktemp -d)"
+trap 'rm -rf "$_deploy_tmp"' EXIT
+jq '.exemptions // {}' "$plan_file" > "$_deploy_tmp/exemptions.json"
+jq '.assignments // {}' "$plan_file" > "$_deploy_tmp/assignments.json"
+jq '.policySetDefinitions // {}' "$plan_file" > "$_deploy_tmp/policySetDefs.json"
+jq '.policyDefinitions // {}' "$plan_file" > "$_deploy_tmp/policyDefs.json"
 
 ###############################################################################
 # Phase 1: Deletes (exemptions → assignments → policy sets → replaced policies)
 ###############################################################################
 
-# Helper to iterate and delete resources
+# Helper to iterate and delete resources from a plan section file
 _deploy_delete_resources() {
-    local plan_json="$1"
+    local plan_section_file="$1"
     local label="$2"
     local api_version="$3"
     shift 3
     local -a sections=("$@")
 
-    local merged="{}"
-    for section in "${sections[@]}"; do
-        local sec_data
-        sec_data="$(echo "$plan_json" | jq --arg s "$section" '.[$s] // {}')"
-        merged="$(echo "$merged" | jq --argjson d "$sec_data" '. + $d')"
-    done
+    # Merge requested sections into a single object via jq
+    local merge_expr='reduce (['"$(printf '.%s // {},' "${sections[@]}" | sed 's/,$//')"'] | .[]) as $s ({}; . + $s)'
+    local merged_file
+    merged_file="$(mktemp)"
+    jq "$merge_expr" "$plan_section_file" > "$merged_file"
 
     local count
-    count="$(echo "$merged" | jq 'length')"
+    count="$(jq 'length' "$merged_file")"
     if [[ $count -gt 0 ]]; then
         epac_write_section "Deleting ${label} (${count} items)" 0
         local keys
-        keys="$(echo "$merged" | jq -r 'keys[]')"
+        keys="$(jq -r 'keys[]' "$merged_file")"
         while IFS= read -r id; do
             [[ -z "$id" ]] && continue
-            local entry
-            entry="$(echo "$merged" | jq --arg id "$id" '.[$id]')"
             local display
-            display="$(echo "$entry" | jq -r '.displayName // .name // "unknown"')"
+            display="$(jq -r --arg id "$id" '.[$id] | .displayName // .name // "unknown"' "$merged_file")"
             epac_write_status "Removing: ${display}" "pending" 2
             epac_remove_resource_by_id "$id" "$api_version" || true
         done <<< "$keys"
     fi
+    rm -f "$merged_file"
 }
 
-# Helper to iterate and create/update resources
+# Helper to iterate and create/update resources from a plan section file
 _deploy_set_resources() {
-    local plan_json="$1"
+    local plan_section_file="$1"
     local label="$2"
     local set_func="$3"
     local api_version="$4"
     shift 4
     local -a sections=("$@")
 
-    local merged="{}"
-    for section in "${sections[@]}"; do
-        local sec_data
-        sec_data="$(echo "$plan_json" | jq --arg s "$section" '.[$s] // {}')"
-        merged="$(echo "$merged" | jq --argjson d "$sec_data" '. + $d')"
-    done
+    # Merge requested sections into a single object via jq
+    local merge_expr='reduce (['"$(printf '.%s // {},' "${sections[@]}" | sed 's/,$//')"'] | .[]) as $s ({}; . + $s)'
+    local merged_file
+    merged_file="$(mktemp)"
+    jq "$merge_expr" "$plan_section_file" > "$merged_file"
 
     local count
-    count="$(echo "$merged" | jq 'length')"
+    count="$(jq 'length' "$merged_file")"
     if [[ $count -gt 0 ]]; then
         epac_write_section "Creating/Updating ${label} (${count} items)" 0
         local keys
-        keys="$(echo "$merged" | jq -r 'keys[]')"
+        keys="$(jq -r 'keys[]' "$merged_file")"
         while IFS= read -r id; do
             [[ -z "$id" ]] && continue
             local entry
-            entry="$(echo "$merged" | jq --arg id "$id" '.[$id]')"
+            entry="$(jq --arg id "$id" '.[$id]' "$merged_file")"
             local display
             display="$(echo "$entry" | jq -r '.displayName // .name // "unknown"')"
             epac_write_status "Processing: ${display}" "pending" 4
@@ -165,42 +169,39 @@ _deploy_set_resources() {
             epac_write_status "Completed: ${display}" "success" 4
         done <<< "$keys"
     fi
+    rm -f "$merged_file"
 }
 
 # 1a. Delete exemptions (delete + replace)
 if [[ "$skip_exemptions" != "true" ]]; then
-    exemptions_plan="$(echo "$plan" | jq '.exemptions // {}')"
-    _deploy_delete_resources "$exemptions_plan" "Policy Exemptions" "$api_exemptions" "delete" "replace"
+    _deploy_delete_resources "$_deploy_tmp/exemptions.json" "Policy Exemptions" "$api_exemptions" "delete" "replace"
 fi
 
 # 1b. Delete assignments (delete + replace)
-assignments_plan="$(echo "$plan" | jq '.assignments // {}')"
-_deploy_delete_resources "$assignments_plan" "Policy Assignments" "$api_assignments" "delete" "replace"
+_deploy_delete_resources "$_deploy_tmp/assignments.json" "Policy Assignments" "$api_assignments" "delete" "replace"
 
 # 1c. Delete policy set definitions (delete + replace)
-psd_plan="$(echo "$plan" | jq '.policySetDefinitions // {}')"
-_deploy_delete_resources "$psd_plan" "Policy Set Definitions" "$api_policy_set_defs" "delete" "replace"
+_deploy_delete_resources "$_deploy_tmp/policySetDefs.json" "Policy Set Definitions" "$api_policy_set_defs" "delete" "replace"
 
 # 1d. Delete replaced policy definitions (only replace, delete comes later)
-pd_plan="$(echo "$plan" | jq '.policyDefinitions // {}')"
-_deploy_delete_resources "$pd_plan" "Replaced Policy Definitions" "$api_policy_defs" "replace"
+_deploy_delete_resources "$_deploy_tmp/policyDefs.json" "Replaced Policy Definitions" "$api_policy_defs" "replace"
 
 ###############################################################################
 # Phase 2: Creates and Updates
 ###############################################################################
 
 # 2a. Policy definitions (new + replace + update)
-_deploy_set_resources "$pd_plan" "Policy Definitions" "epac_set_policy_definition" "$api_policy_defs" "new" "replace" "update"
+_deploy_set_resources "$_deploy_tmp/policyDefs.json" "Policy Definitions" "epac_set_policy_definition" "$api_policy_defs" "new" "replace" "update"
 
 # 2b. Policy set definitions (new + replace + update)
-_deploy_set_resources "$psd_plan" "Policy Set Definitions" "epac_set_policy_set_definition" "$api_policy_set_defs" "new" "replace" "update"
+_deploy_set_resources "$_deploy_tmp/policySetDefs.json" "Policy Set Definitions" "epac_set_policy_set_definition" "$api_policy_set_defs" "new" "replace" "update"
 
 # 2c. Delete obsolete policy definitions (now safe — sets updated)
-pd_delete_only="$(echo "$pd_plan" | jq '{delete: (.delete // {})}')"
-_deploy_delete_resources "$pd_delete_only" "Obsolete Policy Definitions" "$api_policy_defs" "delete"
+jq '{delete: (.delete // {})}' "$_deploy_tmp/policyDefs.json" > "$_deploy_tmp/policyDefs_delete.json"
+_deploy_delete_resources "$_deploy_tmp/policyDefs_delete.json" "Obsolete Policy Definitions" "$api_policy_defs" "delete"
 
 # 2d. Assignments (new + replace + update)
-_deploy_set_resources "$assignments_plan" "Policy Assignments" "epac_set_policy_assignment" "$api_assignments" "new" "replace" "update"
+_deploy_set_resources "$_deploy_tmp/assignments.json" "Policy Assignments" "epac_set_policy_assignment" "$api_assignments" "new" "replace" "update"
 
 # 2e. Exemptions (new + replace + update)
 if [[ "$skip_exemptions" != "true" ]]; then
@@ -209,7 +210,7 @@ if [[ "$skip_exemptions" != "true" ]]; then
         local api_version="$2"
         epac_set_policy_exemption "$entry" "$api_version" "$fail_on_exemption_error"
     }
-    _deploy_set_resources "$exemptions_plan" "Policy Exemptions" "_deploy_set_exemptions" "$api_exemptions" "new" "replace" "update"
+    _deploy_set_resources "$_deploy_tmp/exemptions.json" "Policy Exemptions" "_deploy_set_exemptions" "$api_exemptions" "new" "replace" "update"
 fi
 
 ###############################################################################

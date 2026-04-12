@@ -285,9 +285,18 @@ epac_select_pac_environment() {
     epac_write_status "Tenant ID: ${tenant_id}" "info" 2 >&2
     epac_write_status "Deployment Root Scope: ${deployment_root_scope}" "info" 2 >&2
 
-    # Resolve folders
-    output_folder="$(echo "$global_settings" | jq -r '.outputFolder')"
-    input_folder="$(echo "$global_settings" | jq -r '.inputFolder')"
+    # Resolve folders — prefer function args, fall back to global settings, then defaults
+    local gs_output gs_input
+    gs_output="$(echo "$global_settings" | jq -r '.outputFolder // empty')"
+    gs_input="$(echo "$global_settings" | jq -r '.inputFolder // empty')"
+    # Use global settings value if valid, otherwise keep function arg
+    [[ -n "$gs_output" && "$gs_output" != "false" ]] && output_folder="$gs_output"
+    [[ -z "$output_folder" ]] && output_folder="./Output"
+    # Input folder: function arg > global settings > output folder
+    if [[ -n "$gs_input" && "$gs_input" != "false" ]]; then
+        input_folder="$gs_input"
+    fi
+    [[ -z "$input_folder" || "$input_folder" == "false" ]] && input_folder="$output_folder"
 
     # Get API versions for cloud
     local api_versions
@@ -368,6 +377,9 @@ epac_invoke_az_rest() {
     local uri="$2"
     local body="${3:-}"
     local max_retries="${4:-3}"
+
+    # URL-encode spaces in URI path (e.g. assignment names with spaces)
+    uri="${uri// /%20}"
 
     local token
     token="$(epac_get_access_token)" || return 1
