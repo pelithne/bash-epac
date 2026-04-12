@@ -301,6 +301,7 @@ if [[ "$build_any" == "true" ]]; then
     echo "$combined_policy_details" > "$EPAC_TMP_DIR/combined_policy_details.json"
     echo "$deployed_assignments" > "$EPAC_TMP_DIR/deployed_assignments.json"
     echo "$scope_table" > "$EPAC_TMP_DIR/scope_table.json"
+    echo "$scope_table" | jq 'with_entries(.key |= ascii_downcase)' > "$EPAC_TMP_DIR/scope_table_lower.json"
     echo "$policy_role_ids" > "$EPAC_TMP_DIR/policy_role_ids.json"
     echo "$deployed_exemptions" > "$EPAC_TMP_DIR/deployed_exemptions.json"
     echo "$all_definitions" > "$EPAC_TMP_DIR/all_definitions.json"

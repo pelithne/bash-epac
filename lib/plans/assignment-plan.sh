@@ -1336,22 +1336,26 @@ _epac_build_assignment_definition_node() {
     scope_node="$(echo "$node_object" | jq '.scope // null')"
     not_scope_node="$(echo "$node_object" | jq '.notScope // null')"
     if [[ "$scope_node" != "null" || "$not_scope_node" != "null" ]]; then
-        local scope_table
-        scope_table="$(cat "$EPAC_TMP_DIR/scope_table.json")"
+        local scope_table_lower
+        scope_table_lower="$(cat "$EPAC_TMP_DIR/scope_table_lower.json")"
     fi
     if [[ "$scope_node" != "null" ]]; then
         local scope_val
         scope_val="$(_epac_add_selected_pac_value "$scope_node" "$pac_selector")"
         if [[ "$scope_val" != "null" ]]; then
-            # Build scope collection from scope table
+            # Build scope collection from scope table (case-insensitive lookup)
+            # scope_val may be a single string or an array of scope IDs
             local scope_collection="{}"
-            local scope_id
-            scope_id="$(echo "$scope_val" | jq -r '.')"
-            local scope_entry
-            scope_entry="$(echo "$scope_table" | jq --arg s "$scope_id" '.[$s] // null')"
-            if [[ "$scope_entry" != "null" ]]; then
-                scope_collection="$(echo "$scope_collection" | jq --arg s "$scope_id" --argjson e "$scope_entry" '.[$s] = $e')"
-            fi
+            local scope_ids
+            scope_ids="$(echo "$scope_val" | jq -r 'if type == "array" then .[] else . end | ascii_downcase')"
+            while IFS= read -r scope_id; do
+                [[ -z "$scope_id" ]] && continue
+                local scope_entry
+                scope_entry="$(echo "$scope_table_lower" | jq --arg s "$scope_id" '.[$s] // null')"
+                if [[ "$scope_entry" != "null" ]]; then
+                    scope_collection="$(echo "$scope_collection" | jq --arg s "$scope_id" --argjson e "$scope_entry" '.[$s] = $e')"
+                fi
+            done <<< "$scope_ids"
             def="$(echo "$def" | jq --argjson sc "$scope_collection" '.scopeCollection = $sc')"
         fi
     fi
@@ -1361,21 +1365,22 @@ _epac_build_assignment_definition_node() {
         local not_scope_list
         not_scope_list="$(_epac_add_selected_pac_array "[]" "$not_scope_node" "$pac_selector")"
         if [[ "$not_scope_list" != "[]" ]]; then
-            # Merge not scopes into scope collection entries
-            def="$(echo "$def" | jq --argjson ns "$not_scope_list" --argjson st "$scope_table" '
+            # Merge not scopes into scope collection entries (case-insensitive)
+            def="$(echo "$def" | jq --argjson ns "$not_scope_list" --argjson st "$scope_table_lower" '
                 .scopeCollection as $sc |
                 reduce ($sc | keys[]) as $sk (.;
                     ($sc[$sk].notScopesList // []) as $existing |
                     reduce ($ns[]) as $ns_item (.;
-                        if ($ns_item | test("\\*")) then
+                        ($ns_item | ascii_downcase) as $ns_lower |
+                        if ($ns_lower | test("\\*")) then
                             # Wildcard: filter scope table entries matching pattern
-                            reduce ($st | keys[] | select(test($ns_item | gsub("\\*"; ".*")))) as $match (.;
+                            reduce ($st | keys[] | select(test($ns_lower | gsub("\\*"; ".*")))) as $match (.;
                                 .scopeCollection[$sk].notScopesList = ((.scopeCollection[$sk].notScopesList // []) + [$match]) | .scopeCollection[$sk].notScopesList |= unique
                             )
                         else
                             # Direct scope: add if under this scope
-                            if ($ns_item | startswith($sk)) then
-                                .scopeCollection[$sk].notScopesList = ((.scopeCollection[$sk].notScopesList // []) + [$ns_item]) | .scopeCollection[$sk].notScopesList |= unique
+                            if ($ns_lower | startswith($sk)) then
+                                .scopeCollection[$sk].notScopesList = ((.scopeCollection[$sk].notScopesList // []) + [$ns_lower]) | .scopeCollection[$sk].notScopesList |= unique
                             else .
                             end
                         end
