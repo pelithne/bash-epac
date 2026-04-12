@@ -34,20 +34,20 @@ epac_set_policy_assignment() {
     local assignment_id
     assignment_id="$(echo "$assignment_json" | jq -r '.id')"
 
-    # Build the core properties
+    # Build the core properties (handle both flat plan format and nested .properties format)
     local properties
     properties="$(echo "$assignment_json" | jq '{
-        policyDefinitionId: .properties.policyDefinitionId,
-        displayName: .properties.displayName,
-        description: .properties.description,
-        metadata: .properties.metadata,
-        enforcementMode: .properties.enforcementMode,
-        notScopes: .properties.notScopes
+        policyDefinitionId: (.properties.policyDefinitionId // .policyDefinitionId),
+        displayName: (.properties.displayName // .displayName),
+        description: (.properties.description // .description),
+        metadata: (.properties.metadata // .metadata),
+        enforcementMode: (.properties.enforcementMode // .enforcementMode),
+        notScopes: (.properties.notScopes // .notScopes)
     }')"
 
     # Transform parameters: wrap each value in {value: ...}
     local raw_params
-    raw_params="$(echo "$assignment_json" | jq '.properties.parameters // null')"
+    raw_params="$(echo "$assignment_json" | jq '(.properties.parameters // .parameters) // null')"
     if [[ "$raw_params" != "null" ]]; then
         local wrapped_params
         wrapped_params="$(echo "$raw_params" | jq 'to_entries | map({
@@ -57,10 +57,10 @@ epac_set_policy_assignment() {
         properties="$(echo "$properties" | jq --argjson p "$wrapped_params" '.parameters = $p')"
     fi
 
-    # Add optional fields if present
+    # Add optional fields if present (handle both flat and nested formats)
     for field in nonComplianceMessages overrides resourceSelectors definitionVersion; do
         local field_val
-        field_val="$(echo "$assignment_json" | jq --arg f "$field" '.properties[$f] // null')"
+        field_val="$(echo "$assignment_json" | jq --arg f "$field" '(.properties[$f] // .[$f]) // null')"
         if [[ "$field_val" != "null" ]]; then
             properties="$(echo "$properties" | jq --arg f "$field" --argjson v "$field_val" '.[$f] = $v')"
         fi
