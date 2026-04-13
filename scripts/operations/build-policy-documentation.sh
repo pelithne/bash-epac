@@ -75,133 +75,6 @@ cached_details="{}"
 cached_assignments="{}"
 current_pac_env=""
 
-# Process each documentation spec file
-while IFS= read -r spec_file; do
-    [[ -z "$spec_file" ]] && continue
-
-    epac_write_section "Processing: $(basename "$spec_file")"
-
-    local_spec="$(epac_strip_jsonc "$spec_file")"
-
-    # Check for pacEnvironment filter from subfolder
-    local parent_dir
-    parent_dir="$(dirname "$spec_file")"
-    local parent_name
-    parent_name="$(basename "$parent_dir")"
-    if [[ "$parent_name" != "policyDocumentations" && -n "$pac_selector" && "$parent_name" != "$pac_selector" ]]; then
-        epac_write_status "Skipping (pacSelector mismatch)" "skip" 2
-        continue
-    fi
-
-    # Load global documentation specs if present
-    local global_doc_spec="{}"
-    local has_global
-    has_global="$(echo "$local_spec" | jq 'has("globalDocumentationSpecifications")')"
-    if [[ "$has_global" == "true" ]]; then
-        global_doc_spec="$(echo "$local_spec" | jq '.globalDocumentationSpecifications')"
-    fi
-
-    # ── Process documentPolicySets ──
-    local has_ps
-    has_ps="$(echo "$local_spec" | jq 'has("documentPolicySets")')"
-    if [[ "$has_ps" == "true" ]]; then
-        local ps_entries
-        ps_entries="$(echo "$local_spec" | jq '.documentPolicySets')"
-        # Normalize to array
-        if [[ "$(echo "$ps_entries" | jq 'type')" != '"array"' ]]; then
-            ps_entries="[${ps_entries}]"
-        fi
-
-        local ps_count
-        ps_count="$(echo "$ps_entries" | jq 'length')"
-        local psi=0
-        while [[ $psi -lt $ps_count ]]; do
-            local ps_entry
-            ps_entry="$(echo "$ps_entries" | jq --argjson i "$psi" '.[$i]')"
-            local ps_pac_env
-            ps_pac_env="$(echo "$ps_entry" | jq -r '.pacEnvironment')"
-            local ps_file_stem
-            ps_file_stem="$(echo "$ps_entry" | jq -r '.fileNameStem')"
-            local ps_title
-            ps_title="$(echo "$ps_entry" | jq -r '.title')"
-            local ps_sets
-            ps_sets="$(echo "$ps_entry" | jq '.policySets // []')"
-            local env_cols
-            env_cols="$(echo "$ps_entry" | jq '.environmentColumnsInCsv // []')"
-
-            epac_write_status "Policy Sets: ${ps_title} (env: ${ps_pac_env})" "info" 2
-
-            # Merge global doc spec defaults
-            local doc_spec
-            doc_spec="$(jq -n --argjson g "$global_doc_spec" --argjson l "$ps_entry" '$g + $l')"
-
-            # Switch PAC environment and get resources (would call Azure in real usage)
-            # In documentation mode we need policy set details from Azure
-            # For now, output placeholder if no cached data
-            if [[ "$ps_pac_env" != "$current_pac_env" ]]; then
-                current_pac_env="$ps_pac_env"
-                epac_write_status "Switched to PAC environment: ${current_pac_env}" "info" 4
-            fi
-
-            # Build item list with itemId for flat list conversion
-            local item_list
-            item_list="$(echo "$ps_sets" | jq '[.[] | {shortName, itemId: (.id // .name), policySetId: (.id // .name)}]')"
-
-            # The actual Azure calls would happen here — for offline/test mode,
-            # we pass through whatever cached_details contains
-            local flat_list="{}"
-            local ps_details="{}"
-            if [[ "$(echo "$cached_details" | jq --arg env "$current_pac_env" 'has($env)')" == "true" ]]; then
-                ps_details="$(echo "$cached_details" | jq --arg env "$current_pac_env" '.[$env]')"
-                flat_list="$(epac_convert_details_to_flat_list "$item_list" "$ps_details")"
-            fi
-
-            # Generate documentation
-            local wiki_args=()
-            [[ -n "$wiki_clone_pat" ]] && wiki_args+=(--wiki-clone-pat "$wiki_clone_pat")
-            $wiki_spn && wiki_args+=(--wiki-spn)
-            $include_manual && wiki_args+=(--include-manual)
-
-            epac_out_documentation_for_policy_sets \
-                --output-path "$doc_output" \
-                --doc-spec "$doc_spec" \
-                --item-list "$item_list" \
-                --env-columns-csv "$env_cols" \
-                --policy-set-details "$ps_details" \
-                --flat-policy-list "$flat_list" \
-                "${wiki_args[@]}"
-
-            psi=$((psi + 1))
-        done
-    fi
-
-    # ── Process documentAssignments ──
-    local has_da
-    has_da="$(echo "$local_spec" | jq 'has("documentAssignments")')"
-    if [[ "$has_da" == "true" ]]; then
-        local da_section
-        da_section="$(echo "$local_spec" | jq '.documentAssignments')"
-
-        # Path A: environmentCategories (explicit)
-        local has_ec
-        has_ec="$(echo "$da_section" | jq 'has("environmentCategories")')"
-        if [[ "$has_ec" == "true" ]]; then
-            _process_explicit_assignments "$da_section" "$global_doc_spec" "$doc_output" "$services_output"
-        fi
-
-        # Path B: documentAllAssignments (auto-discover)
-        local has_daa
-        has_daa="$(echo "$da_section" | jq 'has("documentAllAssignments")')"
-        if [[ "$has_daa" == "true" ]]; then
-            _process_auto_assignments "$da_section" "$global_doc_spec" "$doc_output" "$services_output"
-        fi
-    fi
-
-done < <(find "$doc_folder" -type f \( -name "*.json" -o -name "*.jsonc" \) | sort)
-
-epac_write_header "Documentation Generation Complete"
-epac_write_status "Output: ${doc_output}" "success" 2
-
 # ── Helper: Process explicit environmentCategories ──
 _process_explicit_assignments() {
     local da_section="$1"
@@ -317,17 +190,219 @@ _process_auto_assignments() {
         skip_assignments="$(echo "$daa" | jq '.skipPolicyAssignments // []')"
         local skip_definitions
         skip_definitions="$(echo "$daa" | jq '.skipPolicyDefinitions // []')"
-        local exclude_scope_types
-        exclude_scope_types="$(echo "$daa" | jq '.excludeScopeTypes // []')"
 
         epac_write_status "Auto-discover assignments for env: ${daa_pac_env}" "info" 4
 
-        # In real usage, this would query Azure to discover all assignments
-        # and build environment categories automatically.
-        # For now, pass through the documentation spec process
+        # Select and authenticate to PAC environment
+        local pac_env
+        pac_env="$(epac_select_pac_environment "$daa_pac_env" "$definitions_folder")"
+        epac_set_az_cloud_tenant_subscription "$pac_env"
 
+        # Build scope table
+        local scope_table
+        scope_table="$(epac_build_scope_table "$pac_env" "true")"
+
+        # Fetch deployed policy resources
+        local _tmp_dir
+        _tmp_dir="$(mktemp -d)"
+        epac_get_policy_resources "$pac_env" "$scope_table" "true" "true" "false" "$_tmp_dir" >/dev/null
+
+        local assignments_json
+        assignments_json="$(cat "$_tmp_dir/policyassignments.json")"
+        local setdefs_json
+        setdefs_json="$(cat "$_tmp_dir/policysetdefinitions.json")"
+        local poldefs_json
+        poldefs_json="$(cat "$_tmp_dir/policydefinitions.json")"
+
+        # Build assignments_by_env with a single "all" environment category
+        # containing all discovered assignments
+        local root_scope
+        root_scope="$(echo "$pac_env" | jq -r '.deploymentRootScope')"
+        local ec_name="all"
+
+        # Build item list and assignment details from discovered assignments
+        local managed_assignments
+        managed_assignments="$(echo "$assignments_json" | jq '.managed // {}')"
+
+        local item_list="[]"
+        local assignment_details="{}"
+        local assignment_ids
+        assignment_ids="$(echo "$managed_assignments" | jq -r 'keys[]')"
+        while IFS= read -r aid; do
+            [[ -z "$aid" ]] && continue
+            local a_entry
+            a_entry="$(echo "$managed_assignments" | jq --arg id "$aid" '.[$id]')"
+
+            # Check skip list
+            local a_id_lower
+            a_id_lower="$(echo "$aid" | tr '[:upper:]' '[:lower:]')"
+            local skip_match
+            skip_match="$(echo "$skip_assignments" | jq --arg id "$a_id_lower" '[.[] | select(ascii_downcase == $id)] | length')"
+            [[ "$skip_match" -gt 0 ]] && continue
+
+            local display_name
+            display_name="$(echo "$a_entry" | jq -r '.properties.displayName // .name // ""')"
+            local short_name
+            short_name="$(echo "$display_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | head -c 50)"
+            [[ -z "$short_name" ]] && short_name="$(basename "$aid")"
+
+            item_list="$(echo "$item_list" | jq --arg sn "$short_name" --arg id "$aid" '. + [{shortName: $sn, assignmentId: $id, itemId: $id}]')"
+
+            # Get the policy definition reference for this assignment
+            local ps_def_id
+            ps_def_id="$(echo "$a_entry" | jq -r '.properties.policyDefinitionId // empty')"
+            local ps_def_id_lower
+            ps_def_id_lower="$(echo "$ps_def_id" | tr '[:upper:]' '[:lower:]')"
+            local policy_type="Custom"
+            local category=""
+            local description=""
+
+            # Look up in set definitions first, then individual definitions
+            local set_def
+            set_def="$(echo "$setdefs_json" | jq --arg id "$ps_def_id" '.all[$id] // null')"
+            if [[ "$set_def" != "null" ]]; then
+                policy_type="$(echo "$set_def" | jq -r '.properties.policyType // "Custom"')"
+                category="$(echo "$set_def" | jq -r '.properties.metadata.category // ""')"
+                description="$(echo "$set_def" | jq -r '.properties.description // ""')"
+            else
+                local pol_def
+                pol_def="$(echo "$poldefs_json" | jq --arg id "$ps_def_id" '.all[$id] // null')"
+                if [[ "$pol_def" != "null" ]]; then
+                    policy_type="$(echo "$pol_def" | jq -r '.properties.policyType // "Custom"')"
+                    category="$(echo "$pol_def" | jq -r '.properties.metadata.category // ""')"
+                    description="$(echo "$pol_def" | jq -r '.properties.description // ""')"
+                fi
+            fi
+
+            assignment_details="$(echo "$assignment_details" | jq \
+                --arg id "$aid" \
+                --arg dn "$display_name" \
+                --arg pt "$policy_type" \
+                --arg cat "$category" \
+                --arg desc "$description" \
+                --arg psid "$ps_def_id" \
+                '.[$id] = {displayName: $dn, policyType: $pt, category: $cat, description: $desc, policySetId: $psid, assignment: {properties: {displayName: $dn}}}')"
+
+        done <<< "$assignment_ids"
+
+        local item_count
+        item_count="$(echo "$item_list" | jq 'length')"
+        epac_write_status "Discovered ${item_count} assignments" "info" 6
+
+        # Build flat policy list from assignments
+        # Build flat policy list from assignments using a single jq pass
+        local _managed_file _setdefs_file _poldefs_file _flat_file
+        _managed_file="$(mktemp)"
+        _setdefs_file="$(mktemp)"
+        _poldefs_file="$(mktemp)"
+        _flat_file="$(mktemp)"
+        echo "$managed_assignments" > "$_managed_file"
+        echo "$setdefs_json" > "$_setdefs_file"
+        echo "$poldefs_json" > "$_poldefs_file"
+
+        jq -n --arg ec "$ec_name" \
+            --slurpfile ma "$_managed_file" \
+            --slurpfile sd "$_setdefs_file" \
+            --slurpfile pd "$_poldefs_file" \
+        '
+        ($ma[0]) as $managed |
+        ($sd[0].all) as $setdefs |
+        ($pd[0].all) as $poldefs |
+
+        reduce ($managed | keys[]) as $aid (
+            {};
+            . as $flat |
+            ($managed[$aid].properties.policyDefinitionId // "") as $ps_def_id |
+
+            # Check if this is a policy set definition
+            if ($setdefs[$ps_def_id] // null) != null then
+                ($setdefs[$ps_def_id]) as $set_def |
+                reduce ($set_def.properties.policyDefinitions // [] | .[]) as $member (
+                    $flat;
+                    ($member.policyDefinitionId) as $mid |
+                    ($poldefs[$mid] // null) as $pol |
+                    (if $pol != null then $pol.properties.displayName // "" else "" end) as $dn |
+                    (if $pol != null then $pol.properties.description // "" else "" end) as $desc |
+                    (if $pol != null then $pol.properties.metadata.category // "" else "" end) as $cat |
+                    (if $pol != null then $pol.properties.policyType // "BuiltIn" else "BuiltIn" end) as $pt |
+                    (if $pol != null then
+                        (($pol.properties.parameters // {} | to_entries
+                        | map(select(.value.metadata.displayName == "Effect" or .key == "effect"))
+                        | .[0] // null) as $ep |
+                        if $ep != null then ($ep.value.defaultValue // "Disabled") else "Disabled" end)
+                    else "Disabled" end) as $effect |
+                    if has($mid) then
+                        .[$mid].environmentList[$ec] = {environmentCategory: $ec, effectValue: $effect, parameters: {}}
+                    else
+                        .[$mid] = {
+                            policyTableId: $mid, name: $mid,
+                            referencePath: "", displayName: $dn, description: $desc,
+                            policyType: $pt, category: $cat,
+                            isEffectParameterized: false, ordinal: 99,
+                            effectDefault: $effect, effectAllowedValues: {},
+                            effectAllowedOverrides: [], groupNames: [],
+                            policySetEffectStrings: [], isReferencePathMatch: false,
+                            environmentList: {($ec): {environmentCategory: $ec, effectValue: $effect, parameters: {}}}
+                        }
+                    end
+                )
+            else
+                # Single policy definition
+                ($poldefs[$ps_def_id] // null) as $pol |
+                (if $pol != null then $pol.properties.displayName // "" else "" end) as $dn |
+                (if $pol != null then $pol.properties.description // "" else "" end) as $desc |
+                (if $pol != null then $pol.properties.metadata.category // "" else "" end) as $cat |
+                (if $pol != null then $pol.properties.policyType // "BuiltIn" else "BuiltIn" end) as $pt |
+                (if $pol != null then
+                    (($pol.properties.parameters // {} | to_entries
+                    | map(select(.value.metadata.displayName == "Effect" or .key == "effect"))
+                    | .[0] // null) as $ep |
+                    if $ep != null then ($ep.value.defaultValue // "Disabled") else "Disabled" end)
+                else "Disabled" end) as $effect |
+                .[$ps_def_id] = {
+                    policyTableId: $ps_def_id, name: $ps_def_id,
+                    referencePath: "", displayName: $dn, description: $desc,
+                    policyType: $pt, category: $cat,
+                    isEffectParameterized: false, ordinal: 99,
+                    effectDefault: $effect, effectAllowedValues: {},
+                    effectAllowedOverrides: [], groupNames: [],
+                    policySetEffectStrings: [], isReferencePathMatch: false,
+                    environmentList: {($ec): {environmentCategory: $ec, effectValue: $effect, parameters: {}}}
+                }
+            end
+        )
+        ' > "$_flat_file"
+
+        local flat_count
+        flat_count="$(jq 'keys | length' "$_flat_file")"
+        epac_write_status "Built flat policy list with ${flat_count} policies" "info" 6
+
+        # Build assignments_by_env using temp files (data too large for CLI args)
+        local _il_file _ad_file
+        _il_file="$(mktemp)"
+        _ad_file="$(mktemp)"
+        echo "$item_list" > "$_il_file"
+        echo "$assignment_details" > "$_ad_file"
+
+        local _aby_file
+        _aby_file="$(mktemp)"
+        jq -n \
+            --arg ec "$ec_name" \
+            --slurpfile fl "$_flat_file" \
+            --slurpfile il "$_il_file" \
+            --slurpfile ad "$_ad_file" \
+            --arg scope "$root_scope" \
+            '{($ec): {flatPolicyList: $fl[0], itemList: $il[0], assignmentsDetails: $ad[0], scopes: [$scope]}}' > "$_aby_file"
+        local assignments_by_env
+        assignments_by_env="$(cat "$_aby_file")"
+        rm -f "$_flat_file" "$_managed_file" "$_setdefs_file" "$_poldefs_file" "$_il_file" "$_ad_file" "$_aby_file"
+
+        # Get documentation specs — check individual entry first, then parent section
         local doc_specs
         doc_specs="$(echo "$daa" | jq '.documentationSpecifications // []')"
+        if [[ "$(echo "$doc_specs" | jq 'length')" -eq 0 ]]; then
+            doc_specs="$(echo "$da_section" | jq '.documentationSpecifications // []')"
+        fi
         if [[ "$(echo "$doc_specs" | jq 'length')" -eq 0 && "$(echo "$global_doc_spec" | jq 'has("fileNameStem")')" == "true" ]]; then
             doc_specs="[${global_doc_spec}]"
         fi
@@ -343,6 +418,13 @@ _process_auto_assignments() {
             # Override fileNameStem with prefix
             ds="$(echo "$ds" | jq --arg p "$prefix" '.fileNameStem = ($p + "-" + (.fileNameStem // "assignments"))')"
 
+            # Ensure environmentCategories is set and non-empty
+            local ec_len
+            ec_len="$(echo "$ds" | jq '.environmentCategories // [] | length')"
+            if [[ "$ec_len" -eq 0 ]]; then
+                ds="$(echo "$ds" | jq --arg ec "$ec_name" '.environmentCategories = [$ec]')"
+            fi
+
             local wiki_args=()
             [[ -n "$wiki_clone_pat" ]] && wiki_args+=(--wiki-clone-pat "$wiki_clone_pat")
             $wiki_spn && wiki_args+=(--wiki-spn)
@@ -352,13 +434,124 @@ _process_auto_assignments() {
                 --output-path "$doc_output" \
                 --output-path-services "$services_output" \
                 --doc-spec "$ds" \
-                --assignments-by-env "{}" \
+                --assignments-by-env "$assignments_by_env" \
                 --pac-environments "$pac_environments" \
                 "${wiki_args[@]}"
 
             dsi=$((dsi + 1))
         done
 
+        rm -rf "$_tmp_dir"
+
         di=$((di + 1))
     done
 }
+
+# Process each documentation spec file
+while IFS= read -r spec_file; do
+    [[ -z "$spec_file" ]] && continue
+
+    epac_write_section "Processing: $(basename "$spec_file")"
+
+    local_spec="$(epac_read_jsonc "$spec_file")"
+
+    # Check for pacEnvironment filter from subfolder
+    parent_dir="$(dirname "$spec_file")"
+    parent_name="$(basename "$parent_dir")"
+    if [[ "$parent_name" != "policyDocumentations" && -n "$pac_selector" && "$parent_name" != "$pac_selector" ]]; then
+        epac_write_status "Skipping (pacSelector mismatch)" "skip" 2
+        continue
+    fi
+
+    # Load global documentation specs if present
+    global_doc_spec="{}"
+    has_global="$(echo "$local_spec" | jq 'has("globalDocumentationSpecifications")')"
+    if [[ "$has_global" == "true" ]]; then
+        global_doc_spec="$(echo "$local_spec" | jq '.globalDocumentationSpecifications')"
+    fi
+
+    # ── Process documentPolicySets ──
+    has_ps="$(echo "$local_spec" | jq 'has("documentPolicySets")')"
+    if [[ "$has_ps" == "true" ]]; then
+        ps_entries="$(echo "$local_spec" | jq '.documentPolicySets')"
+        # Normalize to array
+        if [[ "$(echo "$ps_entries" | jq 'type')" != '"array"' ]]; then
+            ps_entries="[${ps_entries}]"
+        fi
+
+        ps_count="$(echo "$ps_entries" | jq 'length')"
+        psi=0
+        while [[ $psi -lt $ps_count ]]; do
+            ps_entry="$(echo "$ps_entries" | jq --argjson i "$psi" '.[$i]')"
+            ps_pac_env="$(echo "$ps_entry" | jq -r '.pacEnvironment')"
+            ps_file_stem="$(echo "$ps_entry" | jq -r '.fileNameStem')"
+            ps_title="$(echo "$ps_entry" | jq -r '.title')"
+            ps_sets="$(echo "$ps_entry" | jq '.policySets // []')"
+            env_cols="$(echo "$ps_entry" | jq '.environmentColumnsInCsv // []')"
+
+            epac_write_status "Policy Sets: ${ps_title} (env: ${ps_pac_env})" "info" 2
+
+            # Merge global doc spec defaults
+            doc_spec="$(jq -n --argjson g "$global_doc_spec" --argjson l "$ps_entry" '$g + $l')"
+
+            # Switch PAC environment and get resources (would call Azure in real usage)
+            # In documentation mode we need policy set details from Azure
+            # For now, output placeholder if no cached data
+            if [[ "$ps_pac_env" != "$current_pac_env" ]]; then
+                current_pac_env="$ps_pac_env"
+                epac_write_status "Switched to PAC environment: ${current_pac_env}" "info" 4
+            fi
+
+            # Build item list with itemId for flat list conversion
+            item_list="$(echo "$ps_sets" | jq '[.[] | {shortName, itemId: (.id // .name), policySetId: (.id // .name)}]')"
+
+            # The actual Azure calls would happen here — for offline/test mode,
+            # we pass through whatever cached_details contains
+            flat_list="{}"
+            ps_details="{}"
+            if [[ "$(echo "$cached_details" | jq --arg env "$current_pac_env" 'has($env)')" == "true" ]]; then
+                ps_details="$(echo "$cached_details" | jq --arg env "$current_pac_env" '.[$env]')"
+                flat_list="$(epac_convert_details_to_flat_list "$item_list" "$ps_details")"
+            fi
+
+            # Generate documentation
+            wiki_args=()
+            [[ -n "$wiki_clone_pat" ]] && wiki_args+=(--wiki-clone-pat "$wiki_clone_pat")
+            $wiki_spn && wiki_args+=(--wiki-spn)
+            $include_manual && wiki_args+=(--include-manual)
+
+            epac_out_documentation_for_policy_sets \
+                --output-path "$doc_output" \
+                --doc-spec "$doc_spec" \
+                --item-list "$item_list" \
+                --env-columns-csv "$env_cols" \
+                --policy-set-details "$ps_details" \
+                --flat-policy-list "$flat_list" \
+                "${wiki_args[@]}"
+
+            psi=$((psi + 1))
+        done
+    fi
+
+    # ── Process documentAssignments ──
+    has_da="$(echo "$local_spec" | jq 'has("documentAssignments")')"
+    if [[ "$has_da" == "true" ]]; then
+        da_section="$(echo "$local_spec" | jq '.documentAssignments')"
+
+        # Path A: environmentCategories (explicit)
+        has_ec="$(echo "$da_section" | jq 'has("environmentCategories")')"
+        if [[ "$has_ec" == "true" ]]; then
+            _process_explicit_assignments "$da_section" "$global_doc_spec" "$doc_output" "$services_output"
+        fi
+
+        # Path B: documentAllAssignments (auto-discover)
+        has_daa="$(echo "$da_section" | jq 'has("documentAllAssignments")')"
+        if [[ "$has_daa" == "true" ]]; then
+            _process_auto_assignments "$da_section" "$global_doc_spec" "$doc_output" "$services_output"
+        fi
+    fi
+
+done < <(find "$doc_folder" -type f \( -name "*.json" -o -name "*.jsonc" \) | sort)
+
+epac_write_header "Documentation Generation Complete"
+epac_write_status "Output: ${doc_output}" "success" 2
