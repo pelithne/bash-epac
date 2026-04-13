@@ -18,14 +18,16 @@ epac_set_policy_set_definition() {
     # Build body, removing null fields
     local body
     body="$(echo "$definition_json" | jq '{
-        properties: (.properties | {
-            displayName,
-            description,
-            metadata,
-            parameters,
-            policyDefinitions,
-            policyDefinitionGroups
-        } | with_entries(select(.value != null)))
+        properties: (
+            (if .properties then .properties else . end) | {
+                displayName,
+                description,
+                metadata,
+                parameters,
+                policyDefinitions,
+                policyDefinitionGroups
+            } | with_entries(select(.value != null))
+        )
     }')"
 
     local uri="https://management.azure.com${def_id}?api-version=${api_version}"

@@ -639,6 +639,13 @@ _epac_emit_policy_set_plan_result() {
     num_changes="$(jq -n --argjson n "$d_new" --argjson u "$d_update" --argjson r "$d_replace" --argjson d "$d_delete" \
         '($n | length) + ($u | length) + ($r | length) + ($d | length)')"
 
+    # Use temp files to avoid "Argument list too long" for large JSON
+    local _tmp_ad _tmp_rd _tmp_ri
+    _tmp_ad="$(mktemp)" ; _tmp_rd="$(mktemp)" ; _tmp_ri="$(mktemp)"
+    echo "$all_defs" > "$_tmp_ad"
+    echo "$replace_defs" > "$_tmp_rd"
+    echo "$role_ids" > "$_tmp_ri"
+
     jq -n \
         --argjson dn "$d_new" \
         --argjson du "$d_update" \
@@ -646,16 +653,17 @@ _epac_emit_policy_set_plan_result() {
         --argjson dd "$d_delete" \
         --argjson nc "$num_changes" \
         --argjson nu "$unchanged" \
-        --argjson ad "$all_defs" \
-        --argjson rd "$replace_defs" \
-        --argjson ri "$role_ids" \
+        --slurpfile ad "$_tmp_ad" \
+        --slurpfile rd "$_tmp_rd" \
+        --slurpfile ri "$_tmp_ri" \
         '{
             definitions: {
                 new: $dn, update: $du, replace: $dr, delete: $dd,
                 numberOfChanges: $nc, numberUnchanged: $nu
             },
-            allDefinitions: $ad,
-            replaceDefinitions: $rd,
-            policyRoleIds: $ri
+            allDefinitions: $ad[0],
+            replaceDefinitions: $rd[0],
+            policyRoleIds: $ri[0]
         }'
+    rm -f "$_tmp_ad" "$_tmp_rd" "$_tmp_ri"
 }

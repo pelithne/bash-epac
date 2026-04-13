@@ -17,14 +17,16 @@ epac_set_policy_definition() {
 
     local body
     body="$(echo "$definition_json" | jq '{
-        properties: {
-            displayName: .properties.displayName,
-            description: .properties.description,
-            metadata: .properties.metadata,
-            mode: .properties.mode,
-            parameters: .properties.parameters,
-            policyRule: .properties.policyRule
-        }
+        properties: (
+            (if .properties then .properties else . end) | {
+                displayName,
+                description,
+                metadata,
+                mode,
+                parameters,
+                policyRule
+            }
+        )
     }')"
 
     # Handle [[ → [ escaping in policy rules (PS had this workaround)

@@ -43,11 +43,13 @@ epac_deep_equal() {
         return 1
     fi
 
-    # Single jq call: normalize both values (sort keys recursively) and compare
+    # Single jq call: normalize both values (sort keys recursively, strip null-valued keys) and compare
+    # Stripping null-valued keys is needed because Azure Resource Graph adds explicit null fields
+    # (e.g. "schema": null, "allowedValues": null) that aren't present in definition files.
     local eq
     eq="$(jq -n --argjson a "$a" --argjson b "$b" '
         def normalize:
-            if type == "object" then to_entries | sort_by(.key) | map(.value |= normalize) | from_entries
+            if type == "object" then with_entries(select(.value != null)) | to_entries | sort_by(.key) | map(.value |= normalize) | from_entries
             elif type == "array" then map(normalize)
             else . end;
         ($a | normalize) == ($b | normalize)
