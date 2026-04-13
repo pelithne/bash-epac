@@ -798,8 +798,8 @@ _epac_build_assignment_definition_at_leaf() {
     local scope_count
     scope_count="$(echo "$scope_collection" | jq 'length')"
     if [[ $scope_count -eq 0 ]]; then
-        epac_log_error "Node ${node_name}: no scopeCollection" >&2
-        jq -n '{hasErrors: true, assignments: []}'
+        # No scope for this environment — skip gracefully (not an error)
+        jq -n '{hasErrors: false, assignments: []}'
         return 0
     fi
 
@@ -1355,6 +1355,13 @@ _epac_build_assignment_definition_node() {
     if [[ "$scope_node" != "null" ]]; then
         local scope_val
         scope_val="$(_epac_add_selected_pac_value "$scope_node" "$pac_selector")"
+        # If scope_val is still an object, it's an unresolved pac-keyed scope
+        # with no matching selector — assignment doesn't target this environment
+        if [[ "$scope_val" != "null" ]]; then
+            local _sv_type
+            _sv_type="$(echo "$scope_val" | jq -r 'type')"
+            [[ "$_sv_type" == "object" ]] && scope_val="null"
+        fi
         if [[ "$scope_val" != "null" ]]; then
             # Build scope collection from scope table (case-insensitive lookup)
             # scope_val may be a single string or an array of scope IDs

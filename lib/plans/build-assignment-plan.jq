@@ -28,7 +28,7 @@ def pac_value($sel):
   elif type != "object" then .
   elif has($sel) then .[$sel]
   elif has("*") then .["*"]
-  else .
+  else null
   end;
 
 # Resolve pac-selector-qualified array
@@ -315,7 +315,7 @@ def build_leaf($adef; $pp; $pri; $roleDefs; $pacOwnerId; $deployedBy):
   if $entryCount == 0 then
     {hasErrors: true, assignments: [], diagnostics: [{level: "error", message: "Node \($nodeName): no definitionEntryList"}]}
   elif $scopeCount == 0 then
-    {hasErrors: true, assignments: [], diagnostics: [{level: "error", message: "Node \($nodeName): no scopeCollection"}]}
+    {hasErrors: false, assignments: [], diagnostics: []}
   else
     ($entryCount > 1) as $isMulti |
     reduce (range($entryCount)) as $ei (
@@ -357,7 +357,7 @@ def build_leaf($adef; $pp; $pri; $roleDefs; $pacOwnerId; $deployedBy):
       else
         # Metadata
         (($adef.metadata // {}) | .pacOwnerId = $pacOwnerId |
-         if $deployedBy != "" then (if has("deployedBy") then . else .deployedBy = $deployedBy end) else . end) as $meta |
+         if $deployedBy != "" then .deployedBy = $deployedBy else . end) as $meta |
         (($pri[$entryId] // null) as $roles |
          if $roles != null then $meta | .roles = $roles else $meta end) as $meta |
 
