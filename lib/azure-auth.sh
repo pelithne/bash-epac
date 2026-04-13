@@ -77,10 +77,22 @@ epac_get_az_context() {
 # Equivalent of Set-AzCloudTenantSubscription.ps1
 
 epac_set_az_cloud_tenant_subscription() {
-    local cloud="$1"
-    local tenant_id="$2"
-    local interactive="${3:-false}"
-    local default_context="${4:-}"
+    local cloud tenant_id interactive default_context
+
+    # Support both calling conventions:
+    #   1. epac_set_az_cloud_tenant_subscription "$cloud" "$tenant_id" "$interactive"
+    #   2. epac_set_az_cloud_tenant_subscription "$pac_env_json"
+    if [[ $# -eq 1 ]] && echo "$1" | jq -e '.cloud' > /dev/null 2>&1; then
+        cloud="$(echo "$1" | jq -r '.cloud')"
+        tenant_id="$(echo "$1" | jq -r '.tenantId')"
+        interactive="$(echo "$1" | jq -r '.interactive // "false"')"
+        default_context=""
+    else
+        cloud="$1"
+        tenant_id="$2"
+        interactive="${3:-false}"
+        default_context="${4:-}"
+    fi
 
     # Set the cloud if not default
     local az_cloud
