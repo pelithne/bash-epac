@@ -75,7 +75,7 @@ epac_set_policy_assignment() {
     fi
 
     local location
-    location="$(echo "$assignment_json" | jq -r '.location // empty')"
+    location="$(echo "$assignment_json" | jq -r '.managedIdentityLocation // .location // empty')"
     if [[ -n "$location" ]]; then
         body="$(echo "$body" | jq --arg l "$location" '.location = $l')"
     fi

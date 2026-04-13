@@ -151,9 +151,9 @@ if [[ $added_count -gt 0 ]]; then
                 principal_id="${assignment_principal_cache[$policy_assignment_id]}"
             elif [[ -n "$policy_assignment_id" ]]; then
                 epac_write_status "Resolving identity for: ${policy_assignment_id}" "pending" 2
-                local pa_resp
+                pa_resp=""
                 if pa_resp="$(epac_get_policy_assignment "$policy_assignment_id" "$api_assignments_ver" 2>/dev/null)"; then
-                    local identity_type
+                    identity_type=""
                     identity_type="$(echo "$pa_resp" | jq -r '.identity.type // "None"')"
                     if [[ "$identity_type" == "SystemAssigned" ]]; then
                         principal_id="$(echo "$pa_resp" | jq -r '.identity.principalId')"

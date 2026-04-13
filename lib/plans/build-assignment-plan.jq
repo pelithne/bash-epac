@@ -275,16 +275,16 @@ def build_identity_changes($existing; $desired; $replaced; $deployedRoles):
       else
         if $ex.type != "UserAssigned" then
           reduce ($reqRoles[]) as $rr (.;
-            ([$existRoles[] | select(.scope == $rr.scope and .roleDefinitionId == $rr.roleDefinitionId)] | first // null) as $m |
+            ([$existRoles[] | select(((.properties.scope // .scope) | ascii_downcase) == ($rr.scope | ascii_downcase) and ((.properties.roleDefinitionId // .roleDefinitionId) | ascii_downcase) == ($rr.roleDefinitionId | ascii_downcase))] | first // null) as $m |
             ($rr | _mkRoleEntry($desired)) as $entry |
             if $m != null then
-              if ($m.description // "") != ($rr.description // "") then
-                .updated += [$entry | .id = $m.id | .properties.principalId = $m.principalId]
+              if ($m.description // $m.properties.description // "") != ($rr.description // "") then
+                .updated += [$entry | .id = $m.id | .properties.principalId = ($m.principalId // $m.properties.principalId)]
               else . end
             else .added += [$entry] end
           ) |
           reduce ($existRoles[]) as $er (.;
-            ([$reqRoles[] | select(.scope == $er.scope and .roleDefinitionId == $er.roleDefinitionId)] | length > 0) as $needed |
+            ([$reqRoles[] | select(($er.properties.scope // $er.scope | ascii_downcase) == (.scope | ascii_downcase) and (($er.properties.roleDefinitionId // $er.roleDefinitionId) | ascii_downcase) == (.roleDefinitionId | ascii_downcase))] | length > 0) as $needed |
             if $needed | not then .removed += [$er] else . end
           )
         else . end
