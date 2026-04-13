@@ -388,7 +388,7 @@ epac_build_exemptions_plan() {
 
             # Policy definition reference IDs
             local pd_ref_ids
-            pd_ref_ids="$(echo "$entry" | jq '.policyDefinitionReferenceIds // null')"
+            pd_ref_ids="$(echo "$entry" | jq 'if (.policyDefinitionReferenceIds == "" or .policyDefinitionReferenceIds == null) then null else .policyDefinitionReferenceIds end')"
             # Handle "&" delimited string from CSV
             if [[ "$pd_ref_ids" != "null" ]]; then
                 local ref_type
@@ -398,13 +398,13 @@ epac_build_exemptions_plan() {
                 fi
             fi
 
-            # Resource selectors
+            # Resource selectors (CSV stores as string, parse if JSON)
             local resource_selectors
-            resource_selectors="$(echo "$entry" | jq '.resourceSelectors // null')"
+            resource_selectors="$(echo "$entry" | jq 'if (.resourceSelectors | type) == "string" then (if .resourceSelectors == "" then null else ((.resourceSelectors | fromjson?) // null) end) else (.resourceSelectors // null) end')"
 
-            # Metadata
+            # Metadata (CSV stores as string, need to parse)
             local user_metadata
-            user_metadata="$(echo "$entry" | jq '.metadata // {}')"
+            user_metadata="$(echo "$entry" | jq 'if (.metadata | type) == "string" then ((.metadata | fromjson?) // {}) else (.metadata // {}) end')"
 
             # Assignment scope validation
             local scope_validation
@@ -457,10 +457,23 @@ epac_build_exemptions_plan() {
                     assign_scope="$(echo "$calc_assign" | jq -r '.scope // empty')"
                     if [[ -n "$assign_scope" ]]; then
                         local scope_valid="false"
-                        if [[ "$current_scope" == "$assign_scope" ]]; then
+                        local scope_lower="${current_scope,,}"
+                        local assign_lower="${assign_scope,,}"
+                        if [[ "$scope_lower" == "$assign_lower" ]]; then
                             scope_valid="true"
-                        elif [[ "$current_scope" == "${assign_scope}"/* ]]; then
+                        elif [[ "$scope_lower" == "${assign_lower}"/* ]]; then
                             scope_valid="true"
+                        else
+                            # Check Azure hierarchy via scope table (handles MG → subscription relationships)
+                            local _st_entry
+                            _st_entry="$(echo "$scope_table" | jq --arg s "$scope_lower" '[to_entries[] | select((.key | ascii_downcase) == $s)] | .[0].value // null')"
+                            if [[ "$_st_entry" != "null" && -n "$_st_entry" ]]; then
+                                local _in_parent
+                                _in_parent="$(echo "$_st_entry" | jq --arg p "$assign_lower" '[.parentTable | to_entries[] | select((.key | ascii_downcase) == $p)] | length > 0')"
+                                if [[ "$_in_parent" == "true" ]]; then
+                                    scope_valid="true"
+                                fi
+                            fi
                         fi
                         # Check not-scopes
                         if [[ "$scope_valid" == "true" && "$skip_not_scoped" != "true" ]]; then

@@ -41,19 +41,22 @@ epac_set_policy_exemption() {
     exemption_id="$(echo "$exemption_json" | jq -r '.id')"
 
     # Build body with null fields removed
+    # Handle both flat format (from plan) and nested .properties format
     local body
     body="$(echo "$exemption_json" | jq '{
-        properties: (.properties | {
-            policyAssignmentId,
-            exemptionCategory,
-            assignmentScopeValidation,
-            displayName,
-            description,
-            expiresOn,
-            metadata,
-            policyDefinitionReferenceIds,
-            resourceSelectors
-        } | with_entries(select(.value != null)))
+        properties: (
+            (if .properties then .properties else . end) | {
+                policyAssignmentId,
+                exemptionCategory,
+                assignmentScopeValidation,
+                displayName,
+                description,
+                expiresOn,
+                metadata,
+                policyDefinitionReferenceIds,
+                resourceSelectors
+            } | with_entries(select(.value != null and .value != ""))
+        )
     }')"
 
     local uri="https://management.azure.com${exemption_id}?api-version=${api_version}"
