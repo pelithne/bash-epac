@@ -576,6 +576,10 @@ def process_node($adef; $pdi; $psdi; $pp; $pri; $stl; $roleDefs; $pds; $sel; $pi
           elif ($nsL | startswith($sk)) then
             .scopeCollection[$sk].notScopesList = ((.scopeCollection[$sk].notScopesList // []) + [$nsL]) |
             .scopeCollection[$sk].notScopesList |= unique
+          elif ($stl[$nsL] // null) != null then
+            # notScope is a known scope in the hierarchy (e.g. child MG or subscription under MG)
+            .scopeCollection[$sk].notScopesList = ((.scopeCollection[$sk].notScopesList // []) + [$nsL]) |
+            .scopeCollection[$sk].notScopesList |= unique
           else . end
         )
       )
