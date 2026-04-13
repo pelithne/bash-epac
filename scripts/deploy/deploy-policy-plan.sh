@@ -163,7 +163,7 @@ _deploy_set_resources() {
             local display
             display="$(echo "$entry" | jq -r '.displayName // .name // "unknown"')"
             epac_write_status "Processing: ${display}" "pending" 4
-            "$set_func" "$entry" "$api_version" || {
+            "$set_func" "$entry" "$api_version" > /dev/null || {
                 epac_write_status "Failed: ${display}" "error" 4
             }
             epac_write_status "Completed: ${display}" "success" 4
