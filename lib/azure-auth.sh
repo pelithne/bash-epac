@@ -170,9 +170,9 @@ epac_get_pac_folders() {
         output_folder="${PAC_OUTPUT_FOLDER:-Output}"
     fi
 
-    # Resolve input folder (defaults to output folder)
+    # Resolve input folder (only from env var or explicit arg, never defaults to output)
     if [[ -z "$input_folder" ]]; then
-        input_folder="${PAC_INPUT_FOLDER:-$output_folder}"
+        input_folder="${PAC_INPUT_FOLDER:-}"
     fi
 
     jq -n \
@@ -292,11 +292,11 @@ epac_select_pac_environment() {
     # Use global settings value if valid, otherwise keep function arg
     [[ -n "$gs_output" && "$gs_output" != "false" ]] && output_folder="$gs_output"
     [[ -z "$output_folder" ]] && output_folder="./Output"
-    # Input folder: function arg > global settings > output folder
+    # Input folder: function arg > global settings > leave empty (deploy scripts set their own default)
     if [[ -n "$gs_input" && "$gs_input" != "false" ]]; then
         input_folder="$gs_input"
     fi
-    [[ -z "$input_folder" || "$input_folder" == "false" ]] && input_folder="$output_folder"
+    [[ "$input_folder" == "false" ]] && input_folder=""
 
     # Get API versions for cloud
     local api_versions
@@ -308,8 +308,8 @@ epac_select_pac_environment() {
         --argjson interactive "$([ "$interactive" == "true" ] && echo true || echo false)" \
         --arg policy_plan_out "${output_folder}/plans-${pac_selector}/policy-plan.json" \
         --arg roles_plan_out "${output_folder}/plans-${pac_selector}/roles-plan.json" \
-        --arg policy_plan_in "${input_folder}/plans-${pac_selector}/policy-plan.json" \
-        --arg roles_plan_in "${input_folder}/plans-${pac_selector}/roles-plan.json" \
+        --arg policy_plan_in "${input_folder:-$output_folder}/plans-${pac_selector}/policy-plan.json" \
+        --arg roles_plan_in "${input_folder:-$output_folder}/plans-${pac_selector}/roles-plan.json" \
         '{
             interactive: $interactive,
             policyPlanOutputFile: $policy_plan_out,

@@ -84,7 +84,7 @@ api_exemptions="$(echo "$pac_environment" | jq -r '.apiVersions.policyExemptions
 plan_file="$(echo "$pac_environment" | jq -r '.policyPlanInputFile // .policyPlanOutputFile')"
 if [[ ! -f "$plan_file" ]]; then
     epac_write_section "Deployment Status" 0
-    epac_write_status "Plan file '${plan_file}' does not exist, skipping deployment" "error" 2
+    epac_write_status "Plan file '${plan_file}' does not exist, skipping deployment" "skip" 2
     exit 0
 fi
 

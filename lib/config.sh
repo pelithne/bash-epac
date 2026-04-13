@@ -609,7 +609,9 @@ epac_get_global_settings() {
     epac_write_status "PAC Environments: ${prompt}" "info" 2 >&2
     epac_write_status "PAC Owner Id: ${pac_owner_id}" "info" 2 >&2
     epac_write_status "Definitions root folder: ${definitions_root}" "info" 2 >&2
-    epac_write_status "Input folder: ${input_folder}" "info" 2 >&2
+    if [[ -n "$input_folder" ]]; then
+        epac_write_status "Input folder: ${input_folder}" "info" 2 >&2
+    fi
     epac_write_status "Output folder: ${output_folder}" "info" 2 >&2
 
     jq -n \

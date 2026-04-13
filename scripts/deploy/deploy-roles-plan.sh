@@ -75,7 +75,7 @@ api_roles_ver="$(echo "$pac_environment" | jq -r '.apiVersions.roleAssignments')
 plan_file="$(echo "$pac_environment" | jq -r '.rolesPlanInputFile // .rolesPlanOutputFile')"
 if [[ ! -f "$plan_file" ]]; then
     epac_write_section "Plan File Not Found" 0
-    epac_write_status "Plan file '${plan_file}' does not exist, skipping role deployment" "error" 2
+    epac_write_status "Plan file '${plan_file}' does not exist, skipping role deployment" "skip" 2
     exit 0
 fi
 
