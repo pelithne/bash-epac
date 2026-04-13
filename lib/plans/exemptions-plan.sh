@@ -183,13 +183,31 @@ epac_build_exemptions_plan() {
     local exemptions_root_folder="$1"
     local pac_environment="$2"
     local scope_table="$3"
-    local all_definitions="$4"
-    local all_assignments="$5"
-    local combined_policy_details="$6"
+    local all_definitions_arg="$4"
+    local all_assignments_arg="$5"
+    local combined_policy_details_arg="$6"
     local replaced_assignments="$7"
     local deployed_exemptions="$8"
     local skip_not_scoped="${9:-false}"
     local fail_on_error="${10:-false}"
+
+    # Support file paths: if arg is a file path, read from file
+    local all_definitions all_assignments combined_policy_details
+    if [[ -f "$all_definitions_arg" ]]; then
+        all_definitions="$(cat "$all_definitions_arg")"
+    else
+        all_definitions="$all_definitions_arg"
+    fi
+    if [[ -f "$all_assignments_arg" ]]; then
+        all_assignments="$(cat "$all_assignments_arg")"
+    else
+        all_assignments="$all_assignments_arg"
+    fi
+    if [[ -f "$combined_policy_details_arg" ]]; then
+        combined_policy_details="$(cat "$combined_policy_details_arg")"
+    else
+        combined_policy_details="$combined_policy_details_arg"
+    fi
 
     local pac_owner_id
     pac_owner_id="$(echo "$pac_environment" | jq -r '.pacOwnerId')"
