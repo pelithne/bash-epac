@@ -29,7 +29,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ─── Init ───────────────────────────────────────────────────────────────────
-pac_env="$(epac_select_pac_environment "$pac_selector" "$definitions_root" "" "$interactive")"
+pac_env="$(epac_select_pac_environment "$pac_selector" "$definitions_root" "" "" "$interactive")"
 epac_set_cloud_tenant_subscription "$pac_env"
 
 epac_write_section "Creating custom role 'EPAC Resource Policy Reader'"

@@ -57,7 +57,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ─── Init ───────────────────────────────────────────────────────────────────
-pac_env="$(epac_select_pac_environment "$pac_selector" "$definitions_root" "$output_folder" "$interactive")"
+pac_env="$(epac_select_pac_environment "$pac_selector" "$definitions_root" "$output_folder" "" "$interactive")"
 epac_set_cloud_tenant_subscription "$pac_env"
 
 # ─── Build filter args for non-compliant query ─────────────────────────────

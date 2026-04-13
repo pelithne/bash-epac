@@ -98,7 +98,7 @@ epac_write_header "Enterprise Policy as Code (EPAC)" "Building Deployment Plans"
 _timer "Global settings & environment selection"
 
 # Load global settings & select environment
-pac_environment="$(epac_select_pac_environment "$pac_environment_selector" "$definitions_root_folder" "$output_folder" "$interactive")"
+pac_environment="$(epac_select_pac_environment "$pac_environment_selector" "$definitions_root_folder" "$output_folder" "" "$interactive")"
 
 pac_selector="$(echo "$pac_environment" | jq -r '.pacSelector')"
 deployment_root_scope="$(echo "$pac_environment" | jq -r '.deploymentRootScope')"
