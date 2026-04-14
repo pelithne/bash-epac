@@ -4,7 +4,7 @@ Exemptions are updated frequently as they are a method of preventing enforcement
 
 ## Decision: JSON or CSV
 
-In the past, CSV has been the preferred tool in EPAC. However, the introduction of [new ways to apply exemptions](./policy-exemptions.md) has caused a shift in recommendation to JSON. Regardless, the cmdlets provided will continue to output both to empower the consumer to leverage whichever format is preferred.
+In the past, CSV has been the preferred tool in EPAC. However, the introduction of [new ways to apply exemptions](./policy-exemptions.md) has caused a shift in recommendation to JSON. Regardless, the scripts provided will continue to output both to empower the consumer to leverage whichever format is preferred.
 
 ## Updating exemptions manually
 
@@ -51,36 +51,37 @@ During this process we will export the current Exemptions, and then add addition
 
 1. Add new listing
 
-    ```powershell
-    $pacSelector = "pacSelectorName"
-    $supportId = "SystemName-approvalIdForChange"
-    $policyAssignmentId = "/providers/Microsoft.Management/managementGroups/ManagementGroupName/AssignmentName"
-    $scope = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/ExcludedResourceGroup/ExcludedResource"
-    $name = "Exemption-$supportId"
-    $displayName = "Exemption $supportId"
-    $description = "EPAC $pacSelector - Exemption documented in $supportId"
-    $exemptionCategory = "Waiver|Mitigated"
-    $expiresOn = "YYYY-MM-DDTmm:hh:ssZ"
+    ```bash
+    pacSelector="pacSelectorName"
+    supportId="SystemName-approvalIdForChange"
+    policyAssignmentId="/providers/Microsoft.Management/managementGroups/ManagementGroupName/AssignmentName"
+    scope="/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/ExcludedResourceGroup/ExcludedResource"
+    name="Exemption-${supportId}"
+    displayName="Exemption ${supportId}"
+    description="EPAC ${pacSelector} - Exemption documented in ${supportId}"
+    exemptionCategory="Waiver"  # or "Mitigated"
+    expiresOn="YYYY-MM-DDTmm:hh:ssZ"
 
-    scripts/deploy/set-az-policy-exemption.sh --scope "$scope" --name "$name" --display-name "$displayName" --description "$description" --exemption-category "$exemptionCategory" --expires-on "$expiresOn" --policy-assignment-id "$policyAssignmentId"
+    scripts/deploy/set-az-policy-exemption.sh --scope "$scope" --name "$name" \
+        --display-name "$displayName" --description "$description" \
+        --exemption-category "$exemptionCategory" --expires-on "$expiresOn" \
+        --policy-assignment-id "$policyAssignmentId"
     ```
 
 1. Update Exemptions File
     1. Export New Data
     1. Copy New Data to Definitions Folder
 
-        ```powershell
-        $pacSelector = "pacSelectorName"
-        $definitionsFolder = "./Definitions"
-        $outputFolder = "./Output"
+        ```bash
+        pacSelector="pacSelectorName"
+        definitionsFolder="./Definitions"
+        outputFolder="./Output"
         scripts/operations/get-az-exemptions.sh \
-            -PacEnvironmentSelector $pacSelector `
-            -DefinitionsRootFolder $definitionsFolder `
-            -OutputFolder $outputFolder `
-            -FileExtension jsonc `
-            -ActiveExemptionsOnly
-        Copy-Item `
-            $(Join-Path $outputFolder "policyExemptions" $pacSelector "active-exemptions.jsonc") `
-            $(Join-Path $definitionsFolder "policyExemptions" $pacSelector "active-exemptions.jsonc") `
-            -Force
+            --pac-selector "$pacSelector" \
+            --definitions-root-folder "$definitionsFolder" \
+            --output-folder "$outputFolder" \
+            --file-extension jsonc \
+            --active-exemptions-only
+        cp "${outputFolder}/policyExemptions/${pacSelector}/active-exemptions.jsonc" \
+            "${definitionsFolder}/policyExemptions/${pacSelector}/active-exemptions.jsonc"
         ```

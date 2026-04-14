@@ -275,7 +275,7 @@ Both `scope` and `notScopes` are specific to an [EPAC Environment using the pacS
 }
 E.g. /subscriptions/subscriptionsPattern/Con* would match a subscription with the name Connectivity
 
-The Powershell -like expression is used for matching. 
+Wildcard pattern matching (glob-style) is used for matching. 
 ```
 
 ## Managed Identities and role assignments
