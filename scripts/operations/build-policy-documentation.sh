@@ -224,73 +224,7 @@ _process_auto_assignments() {
         local managed_assignments
         managed_assignments="$(echo "$assignments_json" | jq '.managed // {}')"
 
-        local item_list="[]"
-        local assignment_details="{}"
-        local assignment_ids
-        assignment_ids="$(echo "$managed_assignments" | jq -r 'keys[]')"
-        while IFS= read -r aid; do
-            [[ -z "$aid" ]] && continue
-            local a_entry
-            a_entry="$(echo "$managed_assignments" | jq --arg id "$aid" '.[$id]')"
-
-            # Check skip list
-            local a_id_lower
-            a_id_lower="$(echo "$aid" | tr '[:upper:]' '[:lower:]')"
-            local skip_match
-            skip_match="$(echo "$skip_assignments" | jq --arg id "$a_id_lower" '[.[] | select(ascii_downcase == $id)] | length')"
-            [[ "$skip_match" -gt 0 ]] && continue
-
-            local display_name
-            display_name="$(echo "$a_entry" | jq -r '.properties.displayName // .name // ""')"
-            local short_name
-            short_name="$(echo "$display_name" | tr ' ' '-' | tr '[:upper:]' '[:lower:]' | head -c 50)"
-            [[ -z "$short_name" ]] && short_name="$(basename "$aid")"
-
-            item_list="$(echo "$item_list" | jq --arg sn "$short_name" --arg id "$aid" '. + [{shortName: $sn, assignmentId: $id, itemId: $id}]')"
-
-            # Get the policy definition reference for this assignment
-            local ps_def_id
-            ps_def_id="$(echo "$a_entry" | jq -r '.properties.policyDefinitionId // empty')"
-            local ps_def_id_lower
-            ps_def_id_lower="$(echo "$ps_def_id" | tr '[:upper:]' '[:lower:]')"
-            local policy_type="Custom"
-            local category=""
-            local description=""
-
-            # Look up in set definitions first, then individual definitions
-            local set_def
-            set_def="$(echo "$setdefs_json" | jq --arg id "$ps_def_id" '.all[$id] // null')"
-            if [[ "$set_def" != "null" ]]; then
-                policy_type="$(echo "$set_def" | jq -r '.properties.policyType // "Custom"')"
-                category="$(echo "$set_def" | jq -r '.properties.metadata.category // ""')"
-                description="$(echo "$set_def" | jq -r '.properties.description // ""')"
-            else
-                local pol_def
-                pol_def="$(echo "$poldefs_json" | jq --arg id "$ps_def_id" '.all[$id] // null')"
-                if [[ "$pol_def" != "null" ]]; then
-                    policy_type="$(echo "$pol_def" | jq -r '.properties.policyType // "Custom"')"
-                    category="$(echo "$pol_def" | jq -r '.properties.metadata.category // ""')"
-                    description="$(echo "$pol_def" | jq -r '.properties.description // ""')"
-                fi
-            fi
-
-            assignment_details="$(echo "$assignment_details" | jq \
-                --arg id "$aid" \
-                --arg dn "$display_name" \
-                --arg pt "$policy_type" \
-                --arg cat "$category" \
-                --arg desc "$description" \
-                --arg psid "$ps_def_id" \
-                '.[$id] = {displayName: $dn, policyType: $pt, category: $cat, description: $desc, policySetId: $psid, assignment: {properties: {displayName: $dn}}}')"
-
-        done <<< "$assignment_ids"
-
-        local item_count
-        item_count="$(echo "$item_list" | jq 'length')"
-        epac_write_status "Discovered ${item_count} assignments" "info" 6
-
-        # Build flat policy list from assignments
-        # Build flat policy list from assignments using a single jq pass
+        # Write large JSON data to temp files once — avoid re-piping 40MB+ per jq call
         local _managed_file _setdefs_file _poldefs_file _flat_file
         _managed_file="$(mktemp)"
         _setdefs_file="$(mktemp)"
@@ -299,6 +233,71 @@ _process_auto_assignments() {
         echo "$managed_assignments" > "$_managed_file"
         echo "$setdefs_json" > "$_setdefs_file"
         echo "$poldefs_json" > "$_poldefs_file"
+
+        # Build item_list and assignment_details in a single jq pass
+        local _skip_file
+        _skip_file="$(mktemp)"
+        echo "$skip_assignments" > "$_skip_file"
+        local _item_detail_file
+        _item_detail_file="$(mktemp)"
+        jq -n \
+            --slurpfile managed "$_managed_file" \
+            --slurpfile sd "$_setdefs_file" \
+            --slurpfile pd "$_poldefs_file" \
+            --slurpfile skip "$_skip_file" \
+        '
+        $managed[0] as $ma |
+        ($sd[0].all // {}) as $setdefs |
+        ($pd[0].all // {}) as $poldefs |
+        ($skip[0] // []) as $skip_list |
+        reduce ($ma | keys[]) as $aid (
+            {item_list: [], assignment_details: {}};
+            ($aid | ascii_downcase) as $aid_lower |
+            # Check skip list
+            if ([$skip_list[] | select(ascii_downcase == $aid_lower)] | length) > 0 then .
+            else
+                $ma[$aid] as $a_entry |
+                ($a_entry.properties.displayName // $a_entry.name // "") as $display_name |
+                ($display_name | gsub(" "; "-") | ascii_downcase | .[:50]) as $raw_sn |
+                (if $raw_sn == "" then ($aid | split("/") | last) else $raw_sn end) as $short_name |
+                ($a_entry.properties.policyDefinitionId // "") as $ps_def_id |
+                # Look up metadata from set definitions, then policy definitions
+                (if $setdefs[$ps_def_id] != null then
+                    {pt: ($setdefs[$ps_def_id].properties.policyType // "Custom"),
+                     cat: ($setdefs[$ps_def_id].properties.metadata.category // ""),
+                     desc: ($setdefs[$ps_def_id].properties.description // "")}
+                 elif $poldefs[$ps_def_id] != null then
+                    {pt: ($poldefs[$ps_def_id].properties.policyType // "Custom"),
+                     cat: ($poldefs[$ps_def_id].properties.metadata.category // ""),
+                     desc: ($poldefs[$ps_def_id].properties.description // "")}
+                 else
+                    {pt: "Custom", cat: "", desc: ""}
+                 end) as $meta |
+                .item_list += [{shortName: $short_name, assignmentId: $aid, itemId: $aid}] |
+                .assignment_details[$aid] = {
+                    displayName: $display_name,
+                    policyType: $meta.pt,
+                    category: $meta.cat,
+                    description: $meta.desc,
+                    policySetId: $ps_def_id,
+                    assignment: {properties: {displayName: $display_name}}
+                }
+            end
+        )
+        ' > "$_item_detail_file"
+        rm -f "$_skip_file"
+
+        local item_list
+        item_list="$(jq '.item_list' "$_item_detail_file")"
+        local assignment_details
+        assignment_details="$(jq '.assignment_details' "$_item_detail_file")"
+        rm -f "$_item_detail_file"
+
+        local item_count
+        item_count="$(echo "$item_list" | jq 'length')"
+        epac_write_status "Discovered ${item_count} assignments" "info" 6
+
+        # Build flat policy list from assignments using a single jq pass
 
         jq -n --arg ec "$ec_name" \
             --slurpfile ma "$_managed_file" \
@@ -494,25 +493,440 @@ while IFS= read -r spec_file; do
             # Merge global doc spec defaults
             doc_spec="$(jq -n --argjson g "$global_doc_spec" --argjson l "$ps_entry" '$g + $l')"
 
-            # Switch PAC environment and get resources (would call Azure in real usage)
-            # In documentation mode we need policy set details from Azure
-            # For now, output placeholder if no cached data
-            if [[ "$ps_pac_env" != "$current_pac_env" ]]; then
-                current_pac_env="$ps_pac_env"
-                epac_write_status "Switched to PAC environment: ${current_pac_env}" "info" 4
-            fi
-
             # Build item list with itemId for flat list conversion
             item_list="$(echo "$ps_sets" | jq '[.[] | {shortName, itemId: (.id // .name), policySetId: (.id // .name)}]')"
 
-            # The actual Azure calls would happen here — for offline/test mode,
-            # we pass through whatever cached_details contains
-            flat_list="{}"
-            ps_details="{}"
-            if [[ "$(echo "$cached_details" | jq --arg env "$current_pac_env" 'has($env)')" == "true" ]]; then
-                ps_details="$(echo "$cached_details" | jq --arg env "$current_pac_env" '.[$env]')"
-                flat_list="$(epac_convert_details_to_flat_list "$item_list" "$ps_details")"
+            # ── Fetch Azure policy resources for this PAC environment ──
+            if [[ "$ps_pac_env" != "$current_pac_env" ]]; then
+                current_pac_env="$ps_pac_env"
+                epac_write_status "Switching to PAC environment: ${current_pac_env}" "info" 4
+
+                pac_env="$(epac_select_pac_environment "$current_pac_env" "$definitions_folder")"
+                epac_set_az_cloud_tenant_subscription "$pac_env"
+
+                scope_table="$(epac_build_scope_table "$pac_env" "true")"
+
+                _ps_tmp_dir="$(mktemp -d)"
+                epac_get_policy_resources "$pac_env" "$scope_table" "true" "true" "false" "$_ps_tmp_dir" >/dev/null
+
+                _ps_setdefs_file="${_ps_tmp_dir}/policysetdefinitions.json"
+                _ps_poldefs_file="${_ps_tmp_dir}/policydefinitions.json"
             fi
+
+            # ── Build policySetDetails via single jq pass ──
+            # This implements Convert-PolicyToDetails + Convert-PolicySetToDetails
+            # in one bulk jq operation, avoiding per-policy subprocess overhead.
+            _ps_items_file="$(mktemp)"
+            echo "$ps_sets" > "$_ps_items_file"
+
+            _ps_details_file="$(mktemp)"
+
+            jq -n \
+                --slurpfile items "$_ps_items_file" \
+                --slurpfile sd "$_ps_setdefs_file" \
+                --slurpfile pd "$_ps_poldefs_file" \
+            '
+            ($items[0]) as $policy_sets |
+            ($sd[0].all // {}) as $setdefs |
+            ($pd[0].all // {}) as $poldefs |
+
+            # Helper: extract parameter name from "[parameters('"'"'name'"'"')]" pattern
+            # Returns {found: bool, name: string}
+            def parse_param_ref:
+                if type == "string" and startswith("[parameters(") and endswith(")]") then
+                    {found: true, name: (ltrimstr("[parameters('"'"'") | rtrimstr("'"'"')]"))}
+                else
+                    {found: false, name: null}
+                end;
+
+            # Build policy details for each individual policy definition
+            # (equivalent of Convert-PolicyToDetails)
+            def build_policy_detail($pol_id):
+                ($poldefs[$pol_id] // null) as $pol |
+                if $pol == null then null
+                else
+                    ($pol.properties // {}) as $props |
+                    ($props.metadata.category // "Unknown") as $category |
+                    ($props.parameters // {}) as $params |
+                    ($props.policyRule.then.effect // "Disabled") as $effectRaw |
+                    ($effectRaw | parse_param_ref) as $parsed |
+
+                    (if $parsed.found then
+                        # Effect is parameterized
+                        ($parsed.name) as $epn |
+                        ($params[$epn] // {}) as $ep |
+                        {
+                            effectParameterName: $epn,
+                            effectValue: ($ep.defaultValue // null),
+                            effectDefault: ($ep.defaultValue // null),
+                            effectAllowedValues: ($ep.allowedValues // []),
+                            effectReason: (if $ep.defaultValue != null then "Policy Default" else "Policy No Default" end)
+                        }
+                    else
+                        # Effect is fixed
+                        {
+                            effectParameterName: null,
+                            effectValue: $effectRaw,
+                            effectDefault: $effectRaw,
+                            effectAllowedValues: [$effectRaw],
+                            effectReason: "Policy Fixed"
+                        }
+                    end) as $effect_info |
+
+                    # Determine effectAllowedOverrides from policy rule structure
+                    ($props.policyRule.then.details // null) as $details |
+                    (if ($effect_info.effectAllowedValues | length) > 0 and $effect_info.effectReason != "Policy Fixed" then
+                        $effect_info.effectAllowedValues
+                    elif $details != null then
+                        if ($details.actionNames // null) != null then ["Disabled", "DenyAction"]
+                        elif ($details.defaultState // null) != null then ["Disabled", "Manual"]
+                        elif ($details.deployment // null) != null then ["Disabled", "AuditIfNotExists", "DeployIfNotExists"]
+                        elif ($details.existenceCondition // null) != null then ["Disabled", "AuditIfNotExists"]
+                        elif ($details.operations // null) != null then ["Disabled", "Audit", "Modify"]
+                        elif ($details | type) == "array" then ["Disabled", "Audit", "Deny", "Append"]
+                        else ["Disabled", "Audit", "Deny"]
+                        end
+                    else
+                        ["Disabled", "Audit", "Deny"]
+                    end) as $effectAllowedOverrides |
+
+                    ($props.displayName // $pol.name // "") as $displayName |
+                    ($props.metadata.version // "0.0.0") as $version |
+
+                    {
+                        id: $pol_id,
+                        name: ($pol.name // ""),
+                        displayName: $displayName,
+                        description: ($props.description // ""),
+                        policyType: ($props.policyType // "BuiltIn"),
+                        category: $category,
+                        version: $version,
+                        isDeprecated: ($version | ascii_downcase | test("deprecated")),
+                        effectParameterName: $effect_info.effectParameterName,
+                        effectValue: $effect_info.effectValue,
+                        effectDefault: $effect_info.effectDefault,
+                        effectAllowedValues: $effect_info.effectAllowedValues,
+                        effectAllowedOverrides: $effectAllowedOverrides,
+                        effectReason: $effect_info.effectReason,
+                        parameters: ($params | with_entries({
+                            key: .key,
+                            value: {
+                                isEffect: (.key == $effect_info.effectParameterName),
+                                value: null,
+                                defaultValue: .value.defaultValue,
+                                definition: .value
+                            }
+                        }))
+                    }
+                end;
+
+            # Process each policy set (equivalent of Convert-PolicySetToDetails)
+            reduce ($policy_sets[]) as $ps_spec (
+                {};
+                . as $all_details |
+                ($ps_spec.id // $ps_spec.name) as $ps_id |
+                ($setdefs[$ps_id] // null) as $set_def |
+                if $set_def == null then
+                    . # Skip missing set definitions
+                else
+                    ($set_def.properties // {}) as $set_props |
+                    ($set_props.parameters // {}) as $set_params |
+                    ($set_props.metadata.category // "Unknown") as $set_category |
+                    ($set_props.displayName // $set_def.name // "") as $set_display_name |
+                    ($set_props.description // "") as $set_description |
+
+                    # Process each member policy in the set
+                    (reduce ($set_props.policyDefinitions // [] | .[]) as $member (
+                        {list: [], params_covered: {}, policies_seen: {}, multi_ref: {}};
+
+                        ($member.policyDefinitionId) as $pol_id |
+                        (build_policy_detail($pol_id)) as $pol_detail |
+                        if $pol_detail == null then . # Skip inaccessible policies
+                        else
+                            ($member.parameters // {} | to_entries | map({key: .key, value: .value}) | from_entries) as $member_params |
+
+                            # Resolve effect parameter chain: Policy → PolicySet
+                            ($pol_detail.effectReason) as $base_reason |
+                            ($pol_detail.effectParameterName) as $base_epn |
+                            ($pol_detail.effectValue) as $base_ev |
+                            ($pol_detail.effectDefault) as $base_ed |
+                            ($pol_detail.effectAllowedValues) as $base_eav |
+                            ($pol_detail.effectAllowedOverrides) as $base_eao |
+
+                            (if $base_reason == "Policy Fixed" then
+                                # Fixed at policy level — cannot be changed
+                                {
+                                    effectParameterName: null,
+                                    effectValue: $base_ev,
+                                    effectDefault: $base_ed,
+                                    effectAllowedValues: $base_eav,
+                                    effectAllowedOverrides: $base_eao,
+                                    effectReason: "Policy Fixed"
+                                }
+                            else
+                                # Effect is parameterized in Policy — check if PolicySet wires it
+                                ($member_params[$base_epn] // null) as $member_effect_param |
+                                if $member_effect_param == null then
+                                    # PolicySet does not wire the effect parameter — Policy defaults apply
+                                    {
+                                        effectParameterName: $base_epn,
+                                        effectValue: $base_ev,
+                                        effectDefault: $base_ed,
+                                        effectAllowedValues: $base_eav,
+                                        effectAllowedOverrides: $base_eao,
+                                        effectReason: $base_reason
+                                    }
+                                else
+                                    # PolicySet wires the effect parameter
+                                    (($member_effect_param.value // "") | parse_param_ref) as $ps_parsed |
+                                    if $ps_parsed.found then
+                                        # Effect is surfaced as a PolicySet parameter
+                                        ($set_params[$ps_parsed.name] // {}) as $ps_param |
+                                        {
+                                            effectParameterName: $ps_parsed.name,
+                                            effectValue: ($ps_param.defaultValue // null),
+                                            effectDefault: ($ps_param.defaultValue // null),
+                                            effectAllowedValues: ($ps_param.allowedValues // $base_eav),
+                                            effectAllowedOverrides: $base_eao,
+                                            effectReason: (if $ps_param.defaultValue != null then "PolicySet Default" else "PolicySet No Default" end)
+                                        }
+                                    else
+                                        # Effect is hard-coded (fixed) by PolicySet
+                                        ($member_effect_param.value // $base_ev) as $fixed_val |
+                                        {
+                                            effectParameterName: null,
+                                            effectValue: $fixed_val,
+                                            effectDefault: $fixed_val,
+                                            effectAllowedValues: $base_eav,
+                                            effectAllowedOverrides: $base_eao,
+                                            effectReason: "PolicySet Fixed"
+                                        }
+                                    end
+                                end
+                            end) as $resolved |
+
+                            # Build surfaced parameters (non-effect params wired through PolicySet)
+                            (reduce ($member_params | to_entries[]) as $mp (
+                                {};
+                                ($mp.key) as $pname |
+                                ($mp.value.value // null) as $raw_val |
+                                if ($raw_val | type) == "string" then
+                                    ($raw_val | parse_param_ref) as $pp |
+                                    if $pp.found then
+                                        ($set_params[$pp.name] // {}) as $sp |
+                                        .[$pp.name] = {
+                                            multiUse: false,
+                                            isEffect: ($pp.name == $resolved.effectParameterName),
+                                            value: ($sp.defaultValue // null),
+                                            defaultValue: ($sp.defaultValue // null),
+                                            definition: $sp
+                                        }
+                                    else .
+                                    end
+                                else .
+                                end
+                            )) as $surfaced_params |
+
+                            # Track multi-reference policies
+                            ($member.policyDefinitionReferenceId // "") as $pdr_id |
+                            (if .policies_seen[$pol_id] != null then
+                                # Already seen this policy — mark as multi-ref
+                                .multi_ref[$pol_id] = ((.multi_ref[$pol_id] // .policies_seen[$pol_id]) + [$pdr_id])
+                            else
+                                .policies_seen[$pol_id] = [$pdr_id]
+                            end) |
+
+                            .list += [{
+                                id: $pol_id,
+                                name: $pol_detail.name,
+                                displayName: $pol_detail.displayName,
+                                description: $pol_detail.description,
+                                policyType: $pol_detail.policyType,
+                                category: $pol_detail.category,
+                                version: $pol_detail.version,
+                                isDeprecated: $pol_detail.isDeprecated,
+                                effectParameterName: $resolved.effectParameterName,
+                                effectValue: $resolved.effectValue,
+                                effectDefault: $resolved.effectDefault,
+                                effectAllowedValues: $resolved.effectAllowedValues,
+                                effectAllowedOverrides: $resolved.effectAllowedOverrides,
+                                effectReason: $resolved.effectReason,
+                                parameters: $surfaced_params,
+                                policyDefinitionReferenceId: $pdr_id,
+                                groupNames: ($member.groupNames // [])
+                            }]
+                        end
+                    )) as $result |
+
+                    .[$ps_id] = {
+                        id: $ps_id,
+                        name: ($set_def.name // ""),
+                        displayName: $set_display_name,
+                        description: $set_description,
+                        policyType: ($set_props.policyType // "BuiltIn"),
+                        category: $set_category,
+                        parameters: $set_params,
+                        policyDefinitions: $result.list,
+                        policiesWithMultipleReferenceIds: $result.multi_ref
+                    }
+                end
+            )
+            ' > "$_ps_details_file"
+
+            rm -f "$_ps_items_file"
+            ps_details="$(cat "$_ps_details_file")"
+
+            ps_detail_count="$(echo "$ps_details" | jq 'keys | length')"
+            epac_write_status "Built details for ${ps_detail_count} policy set(s)" "info" 4
+
+            # ── Build flat policy list with policySetList — single jq pass ──
+            # This replaces epac_convert_details_to_flat_list AND populates
+            # policySetList (per-set effect/param data needed by doc-policy-sets.sh)
+            _ps_il_file="$(mktemp)"
+            echo "$item_list" > "$_ps_il_file"
+
+            _ps_flat_file="$(mktemp)"
+            jq -n \
+                --slurpfile items "$_ps_il_file" \
+                --slurpfile details "$_ps_details_file" '
+            $items[0] as $il |
+            $details[0] as $psd |
+
+            # Effect ordinal mapping
+            def effect_ordinal:
+                (ascii_downcase) as $lev |
+                if $lev == "modify" then 0
+                elif $lev == "append" then 1
+                elif $lev == "deployifnotexists" then 2
+                elif $lev == "denyaction" then 3
+                elif $lev == "deny" then 4
+                elif $lev == "audit" then 5
+                elif $lev == "manual" then 6
+                elif $lev == "auditifnotexists" then 7
+                elif $lev == "disabled" then 8
+                else 98 end;
+
+            # First pass: find policies with multiple reference IDs
+            (reduce ($il[]) as $item ({};
+                ($item.itemId) as $iid |
+                ($psd[$iid] // null) as $d |
+                if $d != null then . + ($d.policiesWithMultipleReferenceIds // {})
+                else . end
+            )) as $multi_refs |
+
+            # Second pass: build flat list with policySetList
+            reduce ($il[]) as $item ({};
+                . as $flat |
+                ($item.shortName) as $sn |
+                ($item.itemId) as $iid |
+                ($psd[$iid] // null) as $detail |
+                if $detail == null then .
+                else
+                    reduce ($detail.policyDefinitions // [] | .[]) as $pip (.;
+                        ($pip.id) as $pol_id |
+                        ($pip.policyDefinitionReferenceId // "") as $pdr_id |
+                        ($pip.effectReason // "") as $er |
+                        ($pip.effectDefault // "") as $ed |
+                        ($pip.effectValue // $ed) as $ev |
+                        ($pip.effectParameterName // null) as $epn |
+                        ($er == "PolicySet Default" or $er == "PolicySet No Default") as $is_ep |
+
+                        # Build flat key (handle multi-ref policies)
+                        ("") as $base_rp |
+                        (if $multi_refs[$pol_id] != null then
+                            ($detail.name + "\\" + $pdr_id) as $rp |
+                            {key: ($pol_id + "\\" + $rp), rp: $rp}
+                         else
+                            {key: $pol_id, rp: ""}
+                         end) as $fk |
+
+                        # Effect string for policySetEffectStrings
+                        ((if $er == "PolicySet Default" then
+                            $ed + " (default: " + ($epn // "") + ")"
+                          elif $er == "PolicySet No Default" then
+                            $er + " (" + ($epn // "") + ")"
+                          else
+                            $ed + " (" + $er + ")"
+                          end)) as $effect_string |
+
+                        # Build perPolicySet entry for policySetList
+                        ({
+                            id: ($item.policySetId // $iid),
+                            name: $detail.name,
+                            shortName: $sn,
+                            displayName: $detail.displayName,
+                            description: $detail.description,
+                            policyType: $detail.policyType,
+                            effectParameterName: $epn,
+                            effectValue: $ev,
+                            effectDefault: $ed,
+                            effectAllowedValues: ($pip.effectAllowedValues // []),
+                            effectAllowedOverrides: ($pip.effectAllowedOverrides // []),
+                            effectReason: $er,
+                            isEffectParameterized: $is_ep,
+                            effectString: $effect_string,
+                            parameters: ($pip.parameters // {}),
+                            policyDefinitionReferenceId: $pdr_id,
+                            groupNames: ($pip.groupNames // [])
+                        }) as $per_ps |
+
+                        # Upsert into flat list
+                        if has($fk.key) then
+                            # Update existing entry
+                            (if $is_ep then .[$fk.key].isEffectParameterized = true else . end) |
+                            # Update ordinal if more impactful
+                            (($ed | effect_ordinal) as $new_ord |
+                             if $new_ord < .[$fk.key].ordinal then
+                                .[$fk.key].ordinal = $new_ord |
+                                .[$fk.key].effectValue = $ed |
+                                .[$fk.key].effectDefault = $ed
+                             else . end) |
+                            # Add allowed values
+                            .[$fk.key].effectAllowedValues += (($pip.effectAllowedValues // []) | map({key: ., value: .}) | from_entries) |
+                            # Add group names
+                            ((.[$fk.key].groupNames | keys) as $existing_gn |
+                             .[$fk.key].groupNames += (($pip.groupNames // []) | map({key: ., value: .}) | from_entries) |
+                             .[$fk.key].groupNamesList += [($pip.groupNames // [])[] | select(. as $g | $existing_gn | index($g) == null)]) |
+                            # Add policySetEffectString
+                            .[$fk.key].policySetEffectStrings += [$sn + ": " + $effect_string] |
+                            # Add to policySetList
+                            .[$fk.key].policySetList[$sn] = $per_ps
+                        else
+                            # Create new entry
+                            (($ed | effect_ordinal)) as $ord |
+                            .[$fk.key] = {
+                                id: $pol_id,
+                                name: ($pip.name // ""),
+                                referencePath: $fk.rp,
+                                displayName: ($pip.displayName // ""),
+                                description: ($pip.description // ""),
+                                policyType: ($pip.policyType // "BuiltIn"),
+                                category: ($pip.category // ""),
+                                version: ($pip.version // "0.0.0"),
+                                isDeprecated: ($pip.isDeprecated // false),
+                                effectDefault: $ed,
+                                effectValue: $ed,
+                                ordinal: $ord,
+                                isEffectParameterized: $is_ep,
+                                effectAllowedValues: (($pip.effectAllowedValues // []) | map({key: ., value: .}) | from_entries),
+                                effectAllowedOverrides: ($pip.effectAllowedOverrides // []),
+                                parameters: {},
+                                policySetList: {($sn): $per_ps},
+                                groupNames: (($pip.groupNames // []) | map({key: ., value: .}) | from_entries),
+                                groupNamesList: ($pip.groupNames // []),
+                                policySetEffectStrings: [$sn + ": " + $effect_string]
+                            }
+                        end
+                    )
+                end
+            )
+            ' > "$_ps_flat_file"
+
+            flat_list="$(cat "$_ps_flat_file")"
+            flat_count="$(jq 'keys | length' "$_ps_flat_file")"
+            epac_write_status "Flat policy list has ${flat_count} entries" "info" 4
+
+            rm -f "$_ps_details_file" "$_ps_il_file" "$_ps_flat_file"
 
             # Generate documentation
             wiki_args=()

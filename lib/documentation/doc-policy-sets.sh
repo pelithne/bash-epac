@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # lib/documentation/doc-policy-sets.sh — Generate documentation for policy sets
 # Replaces: Out-DocumentationForPolicySets.ps1
+# Performance-optimized: uses bulk single-pass jq operations
 
 [[ -n "${_EPAC_DOC_POLICY_SETS_LOADED:-}" ]] && return 0
 readonly _EPAC_DOC_POLICY_SETS_LOADED=1
@@ -49,17 +50,12 @@ epac_out_documentation_for_policy_sets() {
     epac_write_status "File Name: $file_name_stem" "info" 2
 
     # Markdown options
-    local ado_wiki
+    local ado_wiki add_toc no_html include_compliance suppress_params max_param_len
     ado_wiki="$(echo "$doc_spec" | jq -r '.markdownAdoWiki // false')"
-    local add_toc
     add_toc="$(echo "$doc_spec" | jq -r '.markdownAddToc // false')"
-    local no_html
     no_html="$(echo "$doc_spec" | jq -r '.markdownNoEmbeddedHtml // false')"
-    local include_compliance
     include_compliance="$(echo "$doc_spec" | jq -r '.markdownIncludeComplianceGroupNames // false')"
-    local suppress_params
     suppress_params="$(echo "$doc_spec" | jq -r '.markdownSuppressParameterSection // false')"
-    local max_param_len
     max_param_len="$(echo "$doc_spec" | jq -r '.markdownMaxParameterLength // 42')"
     [[ "$max_param_len" -lt 16 ]] && max_param_len=42
 
@@ -71,73 +67,70 @@ epac_out_documentation_for_policy_sets() {
     fi
 
     local leading_hashtag="#"
-    if [[ "$ado_wiki" == "true" ]]; then
-        leading_hashtag=""
-    fi
+    [[ "$ado_wiki" == "true" ]] && leading_hashtag=""
+
+    # Write large data to temp files for slurpfile usage
+    local _tmp_flat _tmp_items _tmp_ps_details
+    _tmp_flat="$(mktemp)"
+    _tmp_items="$(mktemp)"
+    _tmp_ps_details="$(mktemp)"
+    echo "$flat_policy_list" > "$_tmp_flat"
+    echo "$item_list" > "$_tmp_items"
+    echo "$policy_set_details" > "$_tmp_ps_details"
 
     # ── Markdown Generation ──
     local md_lines=""
     _md_add() { md_lines+="$1"$'\n'; }
 
     if [[ "$ado_wiki" == "true" ]]; then
-        _md_add "[[_TOC_]]"
-        _md_add ""
+        _md_add "[[_TOC_]]"; _md_add ""
     else
-        _md_add "# ${title}"
-        _md_add ""
-        if [[ "$add_toc" == "true" ]]; then
-            _md_add "[[_TOC_]]"
-            _md_add ""
-        fi
+        _md_add "# ${title}"; _md_add ""
+        [[ "$add_toc" == "true" ]] && { _md_add "[[_TOC_]]"; _md_add ""; }
     fi
     _md_add "Auto-generated Policy effect documentation for PolicySets grouped by Effect and sorted by Policy category and Policy display name."
 
-    # Build dynamic column headers from item list
+    # Policy Set List section — single jq pass
+    local _ps_list_md
+    _ps_list_md="$(jq -n -r --arg lh "$leading_hashtag" \
+        --slurpfile items "$_tmp_items" \
+        --slurpfile details "$_tmp_ps_details" '
+        $items[0] as $il |
+        $details[0] as $psd |
+        $il[] |
+        .shortName as $sn |
+        (.policySetId // .itemId) as $ps_id |
+        ($psd[$ps_id] // {}) as $d |
+        ($d.displayName // "" | gsub("\n"; " ") | gsub("\r"; " ") | gsub("\\s+$"; "")) as $dn |
+        ($d.description // "" | gsub("\n"; " ") | gsub("\r"; " ") | gsub("\\s+$"; "")) as $desc |
+        ($d.policyType // "") as $pt |
+        ($d.category // "") as $cat |
+        "",
+        ($lh + "# " + $sn),
+        "",
+        "- Display name: " + $dn,
+        "",
+        "- Type: " + $pt,
+        "- Category: " + $cat,
+        "",
+        $desc,
+        ""
+    ' /dev/null)"
+    while IFS= read -r line; do
+        _md_add "$line"
+    done <<< "$_ps_list_md"
+
+    # Build column headers
     local added_header="" added_divider="" added_divider_params=""
-    local item_count
-    item_count="$(echo "$item_list" | jq 'length')"
-
-    # Policy Set List section
-    _md_add ""
-    _md_add "${leading_hashtag}# Policy Set (Initiative) List"
-    _md_add ""
-
-    local idx=0
-    while [[ $idx -lt $item_count ]]; do
-        local item
-        item="$(echo "$item_list" | jq --argjson i "$idx" '.[$i]')"
-        local short_name
-        short_name="$(echo "$item" | jq -r '.shortName')"
-        local ps_id
-        ps_id="$(echo "$item" | jq -r '.policySetId // .itemId')"
-        local ps_detail
-        ps_detail="$(echo "$policy_set_details" | jq --arg id "$ps_id" '.[$id]')"
-        local ps_dn
-        ps_dn="$(echo "$ps_detail" | jq -r '.displayName // ""' | tr '\n\r' '  ' | sed 's/[[:space:]]*$//')"
-        local ps_desc
-        ps_desc="$(echo "$ps_detail" | jq -r '.description // ""' | tr '\n\r' '  ' | sed 's/[[:space:]]*$//')"
-        local ps_type
-        ps_type="$(echo "$ps_detail" | jq -r '.policyType // ""')"
-        local ps_cat
-        ps_cat="$(echo "$ps_detail" | jq -r '.category // ""')"
-
-        _md_add "${leading_hashtag}## ${short_name}"
-        _md_add ""
-        _md_add "- Display name: ${ps_dn}"
-        _md_add ""
-        _md_add "- Type: ${ps_type}"
-        _md_add "- Category: ${ps_cat}"
-        _md_add ""
-        _md_add "${ps_desc}"
-        _md_add ""
-
-        added_header+=" ${short_name} |"
+    local _short_names_arr=()
+    readarray -t _short_names_arr < <(echo "$item_list" | jq -r '.[].shortName')
+    for sn in "${_short_names_arr[@]}"; do
+        added_header+=" ${sn} |"
         added_divider+=" :-------: |"
         added_divider_params+=" :------- |"
-        idx=$((idx + 1))
     done
 
-    # Policy Effects Table
+    # Policy Effects Table header
     _md_add ""
     if [[ "$include_compliance" == "true" ]]; then
         _md_add "${leading_hashtag}# Policy Effects by Policy"
@@ -151,81 +144,68 @@ epac_out_documentation_for_policy_sets() {
         _md_add "| :------- | :----- |${added_divider}"
     fi
 
-    # Sort flat policy list by category, displayName
-    local sorted_keys
-    sorted_keys="$(echo "$flat_policy_list" | jq -r '
-        [to_entries[] | {key: .key, cat: .value.category, dn: .value.displayName}]
-        | sort_by(.cat, .dn)
-        | .[].key
-    ')"
+    # Effects table rows — single jq pass
+    local _tmp_effects_output
+    _tmp_effects_output="$(mktemp)"
+    jq -r --arg in_table_break "$in_table_break" \
+           --arg in_table_after_dn_break "$in_table_after_dn_break" \
+           --argjson include_manual "$( [[ "$include_manual" == "true" ]] && echo "true" || echo "false")" \
+           --argjson include_compliance "$( [[ "$include_compliance" == "true" ]] && echo "true" || echo "false")" \
+           --slurpfile items "$_tmp_items" '
+        $items[0] as $il |
+        [$il[].shortName] as $short_names |
+        # Sort entries by category, displayName
+        [to_entries[]]
+        | sort_by(.value.category, .value.displayName)
+        | .[] |
+        .value as $e |
+        # Determine effective value
+        (if $e.effectValue != null and $e.effectValue != "" then $e.effectValue else $e.effectDefault end) as $ev |
+        if ($ev == "Manual" and $include_manual == false) then empty
+        else
+            # Build per-policy-set columns
+            ($short_names | map(
+                . as $sn |
+                ($e.policySetList[$sn] // null) as $per_ps |
+                if $per_ps != null then
+                    ($per_ps.effectValue // "") as $ps_ev |
+                    (if ($ps_ev | test("\\[if\\(contains\\(parameters")) then "SetByParameter" else $ps_ev end) as $clean_ev |
+                    ($per_ps.effectAllowedValues // []) as $allowed |
+                    # Build markdown effect string
+                    (if $clean_ev == "" or $clean_ev == null then ""
+                     else
+                        "**" + $clean_ev + "**" +
+                        ($allowed | map(select(. != $clean_ev)) | map($in_table_break + .) | join(""))
+                     end) as $text |
+                    " " + $text + " |"
+                else "  |"
+                end
+            ) | join("")) as $effect_cols |
+            # Group names / compliance column
+            (if $include_compliance then
+                ($short_names | map(
+                    . as $sn |
+                    ($e.policySetList[$sn] // null) |
+                    if . != null then (.groupNames // [])[] else empty end
+                ) | unique | sort) as $all_gn |
+                if ($all_gn | length) > 0 then
+                    "| " + ($all_gn | join($in_table_break)) + " "
+                else "| " end
+             else "" end) as $compliance_col |
+            # Description cleanup
+            ($e.displayName // "" | gsub("\n"; " ") | gsub("\r"; " ") | gsub("\\s+$"; "")) as $dn |
+            ($e.description // "" | gsub("\n"; " ") | gsub("\r"; " ") | gsub("\\s+$"; "")) as $desc |
+            "| " + ($e.category // "") + " | **" + $dn + "**" + $in_table_after_dn_break + $desc + " " + $compliance_col + "|" + $effect_cols
+        end
+    ' "$_tmp_flat" > "$_tmp_effects_output"
 
-    while IFS= read -r flat_key; do
-        [[ -z "$flat_key" ]] && continue
-        local entry
-        entry="$(echo "$flat_policy_list" | jq --arg k "$flat_key" '.[$k]')"
-        local policy_set_list
-        policy_set_list="$(echo "$entry" | jq '.policySetList // {}')"
-        local ev
-        ev="$(echo "$entry" | jq -r 'if .effectValue != null and .effectValue != "" then .effectValue else .effectDefault end')"
-        [[ -z "$ev" ]] && ev="Unknown"
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        _md_add "$line"
+    done < "$_tmp_effects_output"
+    rm -f "$_tmp_effects_output"
 
-        if [[ "$ev" == "Manual" && "$include_manual" != "true" ]]; then
-            continue
-        fi
-
-        local added_cols=""
-        local group_names_all="[]"
-        idx=0
-        while [[ $idx -lt $item_count ]]; do
-            local sn
-            sn="$(echo "$item_list" | jq -r --argjson i "$idx" '.[$i].shortName')"
-            local has_ps
-            has_ps="$(echo "$policy_set_list" | jq --arg sn "$sn" 'has($sn)')"
-            if [[ "$has_ps" == "true" ]]; then
-                local per_ps
-                per_ps="$(echo "$policy_set_list" | jq --arg sn "$sn" '.[$sn]')"
-                local ps_ev
-                ps_ev="$(echo "$per_ps" | jq -r '.effectValue // ""')"
-                if [[ "$ps_ev" == *"[if(contains(parameters('resourceTypeList')"* ]]; then
-                    ps_ev="SetByParameter"
-                fi
-                local ps_eav
-                ps_eav="$(echo "$per_ps" | jq '.effectAllowedValues // []')"
-                local text
-                text="$(epac_effect_to_markdown_string "$ps_ev" "$ps_eav" "$in_table_break")"
-                added_cols+=" ${text} |"
-
-                # Gather group names
-                local gn
-                gn="$(echo "$per_ps" | jq '.groupNames // []')"
-                group_names_all="$(jq -n --argjson a "$group_names_all" --argjson b "$gn" '$a + $b | unique')"
-            else
-                added_cols+="  |"
-            fi
-            idx=$((idx + 1))
-        done
-
-        local compliance_text=""
-        if [[ "$include_compliance" == "true" ]]; then
-            local gn_count
-            gn_count="$(echo "$group_names_all" | jq 'length')"
-            if [[ $gn_count -gt 0 ]]; then
-                local gn_str
-                gn_str="$(echo "$group_names_all" | jq -r --arg brk "$in_table_break" 'sort | join($brk)')"
-                compliance_text="| ${gn_str} "
-            else
-                compliance_text="| "
-            fi
-        fi
-
-        local dn
-        dn="$(echo "$entry" | jq -r '.displayName // ""' | tr '\n\r' '  ' | sed 's/[[:space:]]*$//')"
-        local desc
-        desc="$(echo "$entry" | jq -r '.description // ""' | tr '\n\r' '  ' | sed 's/[[:space:]]*$//')"
-        _md_add "| $(echo "$entry" | jq -r '.category') | **${dn}**${in_table_after_dn_break}${desc} ${compliance_text}|${added_cols}"
-    done <<< "$sorted_keys"
-
-    # Policy Parameters Table
+    # Policy Parameters Table — single jq pass
     if [[ "$suppress_params" != "true" ]]; then
         _md_add ""
         _md_add "${leading_hashtag}# Policy Parameters by Policy"
@@ -233,77 +213,67 @@ epac_out_documentation_for_policy_sets() {
         _md_add "| Category | Policy |${added_header}"
         _md_add "| :------- | :----- |${added_divider_params}"
 
-        while IFS= read -r flat_key; do
-            [[ -z "$flat_key" ]] && continue
-            local entry
-            entry="$(echo "$flat_policy_list" | jq --arg k "$flat_key" '.[$k]')"
-            local policy_set_list
-            policy_set_list="$(echo "$entry" | jq '.policySetList // {}')"
-            local ev
-            ev="$(echo "$entry" | jq -r 'if .effectValue != null and .effectValue != "" then .effectValue else .effectDefault end')"
-            [[ "$ev" == *"[if(contains(parameters('resourceTypeList')"* ]] && ev="SetByParameter"
-
-            if [[ "$ev" == "Manual" && "$include_manual" != "true" ]]; then
-                continue
-            fi
-
-            local added_params_cols=""
-            local has_params=false
-            idx=0
-            while [[ $idx -lt $item_count ]]; do
-                local sn
-                sn="$(echo "$item_list" | jq -r --argjson i "$idx" '.[$i].shortName')"
-                local has_ps
-                has_ps="$(echo "$policy_set_list" | jq --arg sn "$sn" 'has($sn)')"
-                if [[ "$has_ps" == "true" ]]; then
-                    local per_ps
-                    per_ps="$(echo "$policy_set_list" | jq --arg sn "$sn" '.[$sn]')"
-                    local params
-                    params="$(echo "$per_ps" | jq '.parameters // {}')"
-                    local text=""
-                    local not_first=false
-                    local param_keys
-                    param_keys="$(echo "$params" | jq -r 'keys[]')"
-                    while IFS= read -r pname; do
-                        [[ -z "$pname" ]] && continue
-                        local param
-                        param="$(echo "$params" | jq --arg n "$pname" '.[$n]')"
-                        local is_effect
-                        is_effect="$(echo "$param" | jq -r '.isEffect // false')"
-                        [[ "$is_effect" == "true" ]] && continue
-
-                        has_params=true
-                        local display_name="$pname"
-                        if [[ ${#display_name} -gt $max_param_len ]]; then
-                            display_name="${display_name:0:$((max_param_len - 3))}..."
-                        fi
-                        local value
-                        value="$(echo "$param" | jq -r 'if .value != null then (.value | if type == "string" then . else tojson end) elif .defaultValue != null then (.defaultValue | if type == "string" then . else tojson end) else "null" end')"
-                        if [[ ${#value} -gt $max_param_len ]]; then
-                            value="${value:0:$((max_param_len - 3))}..."
-                        fi
-                        if $not_first; then
-                            text+="${in_table_break}"
+        local _tmp_params_output
+        _tmp_params_output="$(mktemp)"
+        jq -r --arg in_table_break "$in_table_break" \
+               --arg in_table_after_dn_break "$in_table_after_dn_break" \
+               --argjson max_len "$max_param_len" \
+               --argjson include_manual "$( [[ "$include_manual" == "true" ]] && echo "true" || echo "false")" \
+               --slurpfile items "$_tmp_items" '
+            $items[0] as $il |
+            [$il[].shortName] as $short_names |
+            [to_entries[]]
+            | sort_by(.value.category, .value.displayName)
+            | .[] |
+            .value as $e |
+            (if $e.effectValue != null and $e.effectValue != "" then $e.effectValue else $e.effectDefault end) as $ev |
+            if ($ev == "Manual" and $include_manual == false) then empty
+            else
+                # Build per-policy-set param columns
+                ($short_names | map(
+                    . as $sn |
+                    ($e.policySetList[$sn] // null) as $per_ps |
+                    if $per_ps != null then
+                        ($per_ps.parameters // {}) |
+                        to_entries |
+                        map(select(.value.isEffect != true)) |
+                        if length > 0 then
+                            {
+                                text: (map(
+                                    .key as $pname |
+                                    .value as $pval |
+                                    (if ($pname | length) > $max_len then ($pname[:($max_len - 3)] + "...") else $pname end) as $display_name |
+                                    (if $pval.value != null then ($pval.value | if type == "string" then . else tojson end)
+                                     elif $pval.defaultValue != null then ($pval.defaultValue | if type == "string" then . else tojson end)
+                                     else "null" end) as $raw_value |
+                                    (if ($raw_value | length) > $max_len then ($raw_value[:($max_len - 3)] + "...") else $raw_value end) as $value |
+                                    $display_name + " = **`" + $value + "`**"
+                                ) | join($in_table_break)),
+                                has_params: true
+                            }
                         else
-                            not_first=true
-                        fi
-                        text+="${display_name} = **\`${value}\`**"
-                    done <<< "$param_keys"
-                    added_params_cols+=" ${text} |"
-                else
-                    added_params_cols+="  |"
-                fi
-                idx=$((idx + 1))
-            done
+                            {text: "", has_params: false}
+                        end |
+                        " " + .text + " |"
+                    else "  |"
+                    end
+                )) as $cols |
+                # Only output row if at least one set has params
+                ([$cols[] | select(test("\\*\\*`"))] | length > 0) as $any_params |
+                if $any_params then
+                    ($e.displayName // "" | gsub("\n"; " ") | gsub("\r"; " ") | gsub("\\s+$"; "")) as $dn |
+                    ($e.description // "" | gsub("\n"; " ") | gsub("\r"; " ") | gsub("\\s+$"; "")) as $desc |
+                    "| " + ($e.category // "") + " | **" + $dn + "**" + $in_table_after_dn_break + $desc + " |" + ($cols | join(""))
+                else empty
+                end
+            end
+        ' "$_tmp_flat" > "$_tmp_params_output"
 
-            if $has_params; then
-                local dn
-                dn="$(echo "$entry" | jq -r '.displayName // ""' | tr '\n\r' '  ' | sed 's/[[:space:]]*$//')"
-                local desc
-                desc="$(echo "$entry" | jq -r '.description // ""' | tr '\n\r' '  ' | sed 's/[[:space:]]*$//')"
-                _md_add "| $(echo "$entry" | jq -r '.category') | **${dn}**${in_table_after_dn_break}${desc} |${added_params_cols}"
-            fi
-        done <<< "$sorted_keys"
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            _md_add "$line"
+        done < "$_tmp_params_output"
+        rm -f "$_tmp_params_output"
     fi
 
     # Write markdown file
@@ -314,15 +284,15 @@ epac_out_documentation_for_policy_sets() {
 
     # ── CSV Generation ──
     _epac_generate_policy_set_csv "$output_path" "$file_name_stem" \
-        "$flat_policy_list" "$env_columns_csv" "$sorted_keys" "$include_manual"
+        "$_tmp_flat" "$_tmp_items" "$env_columns_csv" "$include_manual"
 
     # ── Compliance CSV ──
     _epac_generate_compliance_csv "$output_path" "$file_name_stem" \
-        "$flat_policy_list" "$sorted_keys" "$include_manual"
+        "$_tmp_flat" "$_tmp_items" "$include_manual"
 
     # ── JSONC Parameters ──
     _epac_generate_parameters_jsonc "$output_path" "$file_name_stem" \
-        "$flat_policy_list" "$item_list" "$sorted_keys"
+        "$_tmp_flat" "$_tmp_items"
 
     # ── ADO Wiki push ──
     if [[ -n "$wiki_clone_pat" || "$wiki_spn" == "true" ]]; then
@@ -330,261 +300,242 @@ epac_out_documentation_for_policy_sets() {
             "$wiki_clone_pat" "$wiki_spn"
     fi
 
+    rm -f "$_tmp_flat" "$_tmp_items" "$_tmp_ps_details"
     epac_write_status "Complete" "success" 2
 }
 
-# ─── CSV for policy sets ──────────────────────────────────────────────────
+# ─── CSV for policy sets — single jq pass ─────────────────────────────────
 _epac_generate_policy_set_csv() {
     local output_path="$1"
     local file_name_stem="$2"
-    local flat_policy_list="$3"
-    local env_columns_csv="$4"
-    local sorted_keys="$5"
+    local flat_file="$3"      # temp file path
+    local items_file="$4"     # temp file path
+    local env_columns_csv="$5"
     local include_manual="$6"
 
     local csv_file="${output_path}/${file_name_stem}.csv"
 
-    # Build header
-    local header="\"name\",\"referencePath\",\"policyType\",\"category\",\"displayName\",\"description\",\"groupNames\",\"policySets\",\"allowedEffects\""
-    local env_count
-    env_count="$(echo "$env_columns_csv" | jq 'length')"
-    local ei=0
-    while [[ $ei -lt $env_count ]]; do
-        local ec
-        ec="$(echo "$env_columns_csv" | jq -r --argjson i "$ei" '.[$i]')"
-        header+=",\"${ec}Effect\""
-        ei=$((ei + 1))
-    done
-    ei=0
-    while [[ $ei -lt $env_count ]]; do
-        local ec
-        ec="$(echo "$env_columns_csv" | jq -r --argjson i "$ei" '.[$i]')"
-        header+=",\"${ec}Parameters\""
-        ei=$((ei + 1))
-    done
-    printf '%s\n' "$header" > "$csv_file"
+    local _tmp_env_cols
+    _tmp_env_cols="$(mktemp)"
+    echo "$env_columns_csv" > "$_tmp_env_cols"
 
-    # Content rows
-    while IFS= read -r flat_key; do
-        [[ -z "$flat_key" ]] && continue
-        local entry
-        entry="$(echo "$flat_policy_list" | jq --arg k "$flat_key" '.[$k]')"
-        local ev
-        ev="$(echo "$entry" | jq -r 'if .effectValue != null and .effectValue != "" then .effectValue else .effectDefault end')"
-        [[ "$ev" == "Manual" && "$include_manual" != "true" ]] && continue
+    jq -r --argjson include_manual "$( [[ "$include_manual" == "true" ]] && echo "true" || echo "false")" \
+           --slurpfile items "$items_file" \
+           --slurpfile env_cols "$_tmp_env_cols" '
+        $items[0] as $il |
+        $env_cols[0] as $envs |
+        [$il[].shortName] as $short_names |
 
-        local row
-        row="$(echo "$entry" | jq -r '
-            def csv_esc: tostring | if test(",|\"|\n") then "\"" + gsub("\""; "\"\"") + "\"" else . end;
-            [.name, .referencePath, .policyType, .category, .displayName, .description,
-             (.groupNamesList | join(",")),
-             (.policySetEffectStrings | join(",")),
-             ""] | map(csv_esc) | join(",")
-        ')"
+        # Effect order for sorting
+        ["Modify","Append","DenyAction","Deny","Audit","Manual","DeployIfNotExists","AuditIfNotExists","Disabled"] as $effect_order |
 
-        # Append allowed effects
-        local effect_default
-        effect_default="$(echo "$entry" | jq -r '.effectDefault // ""')"
-        local is_param
-        is_param="$(echo "$entry" | jq -r '.isEffectParameterized')"
-        local eav_keys
-        eav_keys="$(echo "$entry" | jq '.effectAllowedValues | keys')"
-        local eao
-        eao="$(echo "$entry" | jq '.effectAllowedOverrides // []')"
-        local allowed_str
-        allowed_str="$(epac_allowed_effects_to_csv_string "$effect_default" "$is_param" "$eav_keys" "$eao" ": " ",")"
-        row+=",\"${allowed_str}\""
+        # Header
+        ($envs | map(. + "Effect") | join(",")) as $effect_headers |
+        ($envs | map(. + "Parameters") | join(",")) as $param_headers |
+        ("\"name\",\"referencePath\",\"policyType\",\"category\",\"displayName\",\"description\",\"groupNames\",\"policySets\",\"allowedEffects\"" +
+         (if ($envs | length) > 0 then "," + $effect_headers + "," + $param_headers else "" end)),
 
-        # Per-environment columns: effect + params
-        local params
-        params="$(echo "$entry" | jq '.parameters // {}')"
-        local param_str
-        param_str="$(epac_convert_parameters_to_string "$params" "csvValues")"
-        local norm_effect
-        norm_effect="$(epac_effect_to_csv_string "$effect_default")"
+        # Rows sorted by category, displayName
+        ([to_entries[]]
+         | sort_by(.value.category, .value.displayName)
+         | .[].value) as $e |
+        (if $e.effectValue != null and $e.effectValue != "" then $e.effectValue else $e.effectDefault end) as $ev |
+        if ($ev == "Manual" and $include_manual == false) then empty
+        else
+            # Build allowed effects string
+            (($e.effectAllowedValues | if type == "object" then keys else . end) as $eav |
+             ($e.effectAllowedOverrides // []) as $eao |
+             (if $e.isEffectParameterized == true and ($eav | length) > 1 then
+                {prefix: "parameter", list: $eav}
+              elif ($eao | length) > 1 then
+                {prefix: "override", list: $eao}
+              elif ($e.effectDefault // "") != "" then
+                {prefix: "default", list: [$e.effectDefault]}
+              else
+                {prefix: "none", list: []}
+              end) as $ae |
+             ([$effect_order[] as $candidate | $ae.list[] as $eff |
+               select(($eff | ascii_downcase) == ($candidate | ascii_downcase)) | $candidate] | unique) as $sorted |
+             $ae.prefix + ": " + ($sorted | join(","))
+            ) as $allowed_str |
 
-        ei=0
-        while [[ $ei -lt $env_count ]]; do
-            row+=",\"${norm_effect}\""
-            ei=$((ei + 1))
-        done
-        ei=0
-        while [[ $ei -lt $env_count ]]; do
-            local escaped_params="${param_str//\"/\"\"}"
-            row+=",\"${escaped_params}\""
-            ei=$((ei + 1))
-        done
+            # Build policySets string from policySetEffectStrings
+            ($e.policySetEffectStrings // [] | join(",")) as $ps_str |
 
-        printf '%s\n' "$row" >> "$csv_file"
-    done <<< "$sorted_keys"
+            # Build group names string
+            (($e.groupNamesList // $e.groupNames // []) |
+             if type == "object" then keys
+             elif type == "array" then .
+             else [] end |
+             sort | unique | join(",")) as $gn_str |
 
+            # Per-env effect columns
+            ($envs | map(
+                (($e.effectDefault // "") | ascii_downcase) as $lev |
+                (if $lev == "modify" then "Modify"
+                 elif $lev == "append" then "Append"
+                 elif $lev == "denyaction" then "DenyAction"
+                 elif $lev == "deny" then "Deny"
+                 elif $lev == "audit" then "Audit"
+                 elif $lev == "manual" then "Manual"
+                 elif $lev == "deployifnotexists" then "DeployIfNotExists"
+                 elif $lev == "auditifnotexists" then "AuditIfNotExists"
+                 elif $lev == "disabled" then "Disabled"
+                 else "" end) as $mapped |
+                "\"" + $mapped + "\""
+            ) | join(",")) as $effect_cols |
+
+            # Per-env param columns (use parameters from flat entry)
+            ($envs | map(
+                ($e.parameters // {}) |
+                to_entries | map(select(.value.isEffect != true)) |
+                if length > 0 then
+                    map({key: .key, value: (.value.value // .value.defaultValue // null)}) |
+                    from_entries | tojson | gsub("\""; "\"\"") | "\"" + . + "\""
+                else "\"\""
+                end
+            ) | join(",")) as $param_cols |
+
+            # CSV-escape base fields
+            [$e.name, ($e.referencePath // ""), ($e.policyType // ""), ($e.category // ""),
+             ($e.displayName // ""), ($e.description // ""), $gn_str, $ps_str, $allowed_str] |
+            map(tostring | if test("[,\"\n]") then "\"" + gsub("\""; "\"\"") + "\"" else . end) |
+            join(",") |
+            . + (if ($envs | length) > 0 then "," + $effect_cols + "," + $param_cols else "" end)
+        end
+    ' "$flat_file" > "$csv_file"
+
+    rm -f "$_tmp_env_cols"
     epac_write_status "Wrote ${csv_file}" "success" 2
 }
 
-# ─── Compliance CSV ──────────────────────────────────────────────────────
+# ─── Compliance CSV — single jq pass via temp file ───────────────────────
 _epac_generate_compliance_csv() {
     local output_path="$1"
     local file_name_stem="$2"
-    local flat_policy_list="$3"
-    local sorted_keys="$4"
+    local flat_file="$3"      # temp file path
+    local items_file="$4"     # temp file path
     local include_manual="$5"
 
     local csv_file="${output_path}/${file_name_stem}-compliance.csv"
-    printf '%s\n' '"groupName","category","policyDisplayName","allowedEffects","defaultEffect","policyId"' > "$csv_file"
+    local _tmp_jq
+    _tmp_jq="$(mktemp)"
 
-    # Pivot by group name
-    local per_group="{}"
-    while IFS= read -r flat_key; do
-        [[ -z "$flat_key" ]] && continue
-        local entry
-        entry="$(echo "$flat_policy_list" | jq --arg k "$flat_key" '.[$k]')"
-        local gn_list
-        gn_list="$(echo "$entry" | jq '.groupNamesList // []')"
-        local gn_count
-        gn_count="$(echo "$gn_list" | jq 'length')"
-        local gi=0
-        while [[ $gi -lt $gn_count ]]; do
-            local gn
-            gn="$(echo "$gn_list" | jq -r --argjson i "$gi" '.[$i]')"
-            per_group="$(echo "$per_group" | jq --arg gn "$gn" --arg k "$flat_key" \
-                'if has($gn) then .[$gn] += [$k] else .[$gn] = [$k] end')"
-            gi=$((gi + 1))
-        done
-    done <<< "$sorted_keys"
+    cat > "$_tmp_jq" << 'JQEOF'
+[to_entries[] |
+ .value as $e |
+ (if $e.effectValue != null and $e.effectValue != "" then $e.effectValue else $e.effectDefault end) as $ev |
+ select($ev != "Manual" or $include_manual) |
+ (($e.groupNamesList // $e.groupNames // []) |
+  if type == "object" then keys
+  elif type == "array" then .
+  else [] end) as $gn_list |
+ $gn_list[] as $gn |
 
-    # Sort and output
-    local group_names_sorted
-    group_names_sorted="$(echo "$per_group" | jq -r 'keys[]')"
-    while IFS= read -r gn; do
-        [[ -z "$gn" ]] && continue
-        local policy_keys
-        policy_keys="$(echo "$per_group" | jq -r --arg gn "$gn" '.[$gn][]')"
-        local cats="" dns="" effs="" defs="" ids=""
-        while IFS= read -r pk; do
-            [[ -z "$pk" ]] && continue
-            local pe
-            pe="$(echo "$flat_policy_list" | jq --arg k "$pk" '.[$k]')"
-            local cat dn ed
-            cat="$(echo "$pe" | jq -r '.category')"
-            dn="$(echo "$pe" | jq -r '.displayName')"
-            ed="$(echo "$pe" | jq -r '.effectDefault // ""')"
-            local pid
-            pid="$(echo "$pe" | jq -r '.name')"
+ # Build allowed effects string
+ (($e.effectAllowedValues | if type == "object" then keys else . end) as $eav |
+  ($e.effectAllowedOverrides // []) as $eao |
+  (if $e.isEffectParameterized == true and ($eav | length) > 1 then
+     "param:" + ($eav | join("|"))
+   elif ($eao | length) > 1 then
+     "overr:" + ($eao | join("|"))
+   else
+     ($e.effectDefault // "")
+   end)) as $allowed |
 
-            local is_param
-            is_param="$(echo "$pe" | jq -r '.isEffectParameterized')"
-            local eav
-            eav="$(echo "$pe" | jq '.effectAllowedValues | keys')"
-            local eao
-            eao="$(echo "$pe" | jq '.effectAllowedOverrides // []')"
-            local allowed="$ed"
-            if [[ "$is_param" == "true" && "$(echo "$eav" | jq 'length')" -gt 1 ]]; then
-                allowed="param:$(echo "$eav" | jq -r 'join("|")')"
-            elif [[ "$(echo "$eao" | jq 'length')" -gt 0 ]]; then
-                allowed="overr:$(echo "$eao" | jq -r 'join("|")')"
-            fi
+ {
+   groupName: $gn,
+   category: ($e.category // ""),
+   displayName: ($e.displayName // ""),
+   allowed: $allowed,
+   effectDefault: ($e.effectDefault // ""),
+   name: ($e.name // "")
+ }
+] |
+sort_by(.groupName, .category, .displayName) |
+(["groupName","category","policyDisplayName","allowedEffects","defaultEffect","policyId"] |
+ map("\"" + . + "\"") | join(",")),
+(.[] |
+ [.groupName, .category, .displayName, .allowed, .effectDefault, .name] |
+ map(tostring | if test("[,\"\n]") then "\"" + gsub("\""; "\"\"") + "\"" else . end) |
+ join(","))
+JQEOF
 
-            [[ -n "$cats" ]] && cats+=","
-            cats+="$cat"
-            [[ -n "$dns" ]] && dns+=","
-            dns+="$dn"
-            [[ -n "$effs" ]] && effs+=","
-            effs+="$allowed"
-            [[ -n "$defs" ]] && defs+=","
-            defs+="$ed"
-            [[ -n "$ids" ]] && ids+=","
-            ids+="$pid"
-        done <<< "$policy_keys"
+    jq -r --argjson include_manual "$( [[ "$include_manual" == "true" ]] && echo "true" || echo "false")" \
+        -f "$_tmp_jq" "$flat_file" > "$csv_file"
 
-        # CSV escape
-        local row
-        row="\"${gn//\"/\"\"}\",\"${cats//\"/\"\"}\",\"${dns//\"/\"\"}\",\"${effs//\"/\"\"}\",\"${defs//\"/\"\"}\",\"${ids//\"/\"\"}\""
-        printf '%s\n' "$row" >> "$csv_file"
-    done <<< "$group_names_sorted"
-
+    rm -f "$_tmp_jq"
     epac_write_status "Wrote ${csv_file}" "success" 2
 }
 
-# ─── JSONC Parameters file ──────────────────────────────────────────────
+# ─── JSONC Parameters file — single jq pass ──────────────────────────────
 _epac_generate_parameters_jsonc() {
     local output_path="$1"
     local file_name_stem="$2"
-    local flat_policy_list="$3"
-    local item_list="$4"
-    local sorted_keys="$5"
+    local flat_file="$3"      # temp file path
+    local items_file="$4"     # temp file path
 
     local jsonc_file="${output_path}/${file_name_stem}.jsonc"
-    local sb="{"
-    sb+=$'\n'"  \"parameters\": {"
 
-    while IFS= read -r flat_key; do
-        [[ -z "$flat_key" ]] && continue
-        local entry
-        entry="$(echo "$flat_policy_list" | jq --arg k "$flat_key" '.[$k]')"
-        local is_param
-        is_param="$(echo "$entry" | jq -r '.isEffectParameterized')"
-        [[ "$is_param" != "true" ]] && continue
+    jq -r --slurpfile items "$items_file" '
+        $items[0] as $il |
+        [$il[].shortName] as $short_names |
 
-        local policy_set_list
-        policy_set_list="$(echo "$entry" | jq '.policySetList // {}')"
-        local ref_path
-        ref_path="$(echo "$entry" | jq -r '.referencePath // ""')"
-        local dn
-        dn="$(echo "$entry" | jq -r '.displayName // ""')"
-        local cat
-        cat="$(echo "$entry" | jq -r '.category // ""')"
+        # Collect entries that have parameterized effects
+        [to_entries[]
+         | select(.value.isEffectParameterized == true)
+         | .value] |
+        sort_by(.category, .displayName) |
 
-        sb+=$'\n'"    // "
-        sb+=$'\n'"    // -----------------------------------------------------------------------------------------------------------------------------"
-        sb+=$'\n'"    // ${cat} -- ${dn}"
-        if [[ -n "$ref_path" ]]; then
-            sb+=$'\n'"    //     referencePath: ${ref_path}"
-        fi
+        # Build JSONC output
+        "{",
+        "  \"parameters\": {",
+        (. as $entries |
+         [$entries[] |
+          .category as $cat |
+          .displayName as $dn |
+          (.referencePath // "") as $rp |
+          .policySetList as $psl |
 
-        # Per policy-set comments
-        local item_count
-        item_count="$(echo "$item_list" | jq 'length')"
-        local idx=0
-        while [[ $idx -lt $item_count ]]; do
-            local sn
-            sn="$(echo "$item_list" | jq -r --argjson i "$idx" '.[$i].shortName')"
-            local has_ps
-            has_ps="$(echo "$policy_set_list" | jq --arg sn "$sn" 'has($sn)')"
-            if [[ "$has_ps" == "true" ]]; then
-                local per_ps
-                per_ps="$(echo "$policy_set_list" | jq --arg sn "$sn" '.[$sn]')"
-                local ps_dn
-                ps_dn="$(echo "$per_ps" | jq -r '.displayName')"
-                local ps_param
-                ps_param="$(echo "$per_ps" | jq -r '.isEffectParameterized')"
-                if [[ "$ps_param" == "true" ]]; then
-                    local epn ed
-                    epn="$(echo "$per_ps" | jq -r '.effectParameterName // ""')"
-                    ed="$(echo "$per_ps" | jq -r '.effectDefault // ""')"
-                    sb+=$'\n'"    //   ${ps_dn}: ${ed} (${epn})"
-                else
-                    local er ed
-                    er="$(echo "$per_ps" | jq -r '.effectReason // ""')"
-                    ed="$(echo "$per_ps" | jq -r '.effectDefault // ""')"
-                    sb+=$'\n'"    //   ${ps_dn}: ${ed} (${er})"
-                fi
-            fi
-            idx=$((idx + 1))
-        done
-        sb+=$'\n'"    // -----------------------------------------------------------------------------------------------------------------------------"
+          "    // ",
+          "    // -----------------------------------------------------------------------------------------------------------------------------",
+          "    // " + $cat + " -- " + $dn,
+          (if $rp != "" then "    //     referencePath: " + $rp else empty end),
 
-        # Parameter lines
-        local params
-        params="$(echo "$entry" | jq '.parameters // {}')"
-        local param_text
-        param_text="$(epac_convert_parameters_to_string "$params" "jsonc")"
-        sb+="${param_text}"
-    done <<< "$sorted_keys"
+          # Per policy-set comments
+          ($short_names[] |
+           . as $sn |
+           ($psl[$sn] // null) |
+           if . != null then
+             if .isEffectParameterized == true then
+               "    //   " + (.displayName // $sn) + ": " + (.effectDefault // "") + " (" + (.effectParameterName // "") + ")"
+             else
+               "    //   " + (.displayName // $sn) + ": " + (.effectDefault // "") + " (" + (.effectReason // "") + ")"
+             end
+           else empty
+           end),
 
-    sb+=$'\n'"  }"
-    sb+=$'\n'"}"
+          "    // -----------------------------------------------------------------------------------------------------------------------------",
 
-    printf '%s\n' "$sb" > "$jsonc_file"
+          # Parameter JSON lines
+          (.parameters // {} | to_entries | map(select(.value.isEffect != true)) |
+           if length > 0 then
+             .[] |
+             .key as $pname |
+             .value as $pval |
+             ($pval.value // $pval.defaultValue // null) as $v |
+             (if $v == null then "null"
+              elif $v | type == "string" then "\"" + $v + "\""
+              else ($v | tojson)
+              end) as $val_str |
+             "    \"" + $pname + "\": " + $val_str + ","
+           else empty
+           end)
+         ] | .[]),
+        "  }",
+        "}"
+    ' "$flat_file" > "$jsonc_file"
+
     epac_write_status "Wrote ${jsonc_file}" "success" 2
 }
 
@@ -600,7 +551,6 @@ _epac_push_to_ado_wiki() {
     wiki_cfg="$(echo "$doc_spec" | jq '.markdownAdoWikiConfig // null')"
     [[ "$wiki_cfg" == "null" ]] && return
 
-    # Normalize array to single object
     if [[ "$(echo "$wiki_cfg" | jq 'type')" == '"array"' ]]; then
         wiki_cfg="$(echo "$wiki_cfg" | jq '.[0]')"
     fi
