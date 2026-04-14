@@ -231,7 +231,9 @@ epac_write_header() {
 
     # Append to info stream
     epac_info_stream_append "${title}"
-    [[ -n "$subtitle" ]] && epac_info_stream_append "${subtitle}"
+    if [[ -n "$subtitle" ]]; then
+        epac_info_stream_append "${subtitle}"
+    fi
 }
 
 # ─── Write-ModernSection ─────────────────────────────────────────────────────
