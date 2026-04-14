@@ -69,7 +69,7 @@ Determine the **Tenant Intermediate Root** Management Group ID. This will be set
 
 ### Run the Hydration Kit
 
-Use the `install-hydration-epac.sh` cmdlet to start the Hydration Kit Installer, specifying the `TenantIntermediateRoot`
+Use the `install-hydration-epac.sh` script to start the Hydration Kit Installer, specifying the `TenantIntermediateRoot`
 
 ```bash
 tenantIntermediateRoot="contoso" # Replace with your Management Group ID
