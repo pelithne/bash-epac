@@ -182,9 +182,9 @@ epac_get_pac_folders() {
         output_folder="${PAC_OUTPUT_FOLDER:-Output}"
     fi
 
-    # Resolve input folder (only from env var or explicit arg, never defaults to output)
+    # Resolve input folder (defaults to output folder if not specified)
     if [[ -z "$input_folder" ]]; then
-        input_folder="${PAC_INPUT_FOLDER:-}"
+        input_folder="${PAC_INPUT_FOLDER:-$output_folder}"
     fi
 
     jq -n \

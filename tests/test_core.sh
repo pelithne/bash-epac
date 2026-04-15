@@ -158,7 +158,7 @@ assert_eq "RG name" "myRG" "$(epac_json_get "$scope_rg" ".resourceGroupName")"
 
 # Policy resource ID parsing
 res=$(epac_split_policy_resource_id "/subscriptions/sub-id/providers/Microsoft.Authorization/policyDefinitions/myDef")
-assert_eq "Policy def type" "policyDefinitions" "$(epac_json_get "$res" ".resourceType")"
+assert_eq "Policy def type" "policyDefinitions" "$(epac_json_get "$res" ".kind")"
 assert_eq "Policy def name" "myDef" "$(epac_json_get "$res" ".name")"
 
 # Parameter name extraction

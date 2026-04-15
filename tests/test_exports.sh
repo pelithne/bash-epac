@@ -79,33 +79,33 @@ assert_file_exists() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-echo "=== epac_scrub_string ==="
+echo "=== _epac_export_scrub_string ==="
 
-result="$(epac_scrub_string "Hello World" "" 0)"
+result="$(_epac_export_scrub_string "Hello World" "" 0)"
 assert_eq "No changes with no options" "Hello World" "$result"
 
-result="$(epac_scrub_string "  Hello  " "" 0 --trim)"
+result="$(_epac_export_scrub_string "  Hello  " "" 0 --trim)"
 assert_eq "Trim whitespace" "Hello" "$result"
 
-result="$(epac_scrub_string "Hello World" "" 0 --lower)"
+result="$(_epac_export_scrub_string "Hello World" "" 0 --lower)"
 assert_eq "Lower case" "hello world" "$result"
 
-result="$(epac_scrub_string 'Hello:World[Test]' ':[]' 0)"
+result="$(_epac_export_scrub_string 'Hello:World[Test]' ':[]' 0)"
 assert_eq "Remove invalid chars" "HelloWorldTest" "$result"
 
-result="$(epac_scrub_string "Hello World" "" 5)"
+result="$(_epac_export_scrub_string "Hello World" "" 5)"
 assert_eq "Max length truncation" "Hello" "$result"
 
-result="$(epac_scrub_string "Hello World" "" 0 --replace-spaces-with "-")"
+result="$(_epac_export_scrub_string "Hello World" "" 0 --replace-spaces-with "-")"
 assert_eq "Replace spaces with dash" "Hello-World" "$result"
 
-result="$(epac_scrub_string "Hello  World" "" 0 --replace-spaces-with "-")"
+result="$(_epac_export_scrub_string "Hello  World" "" 0 --replace-spaces-with "-")"
 assert_eq "Replace multiple spaces" "Hello--World" "$result"
 
-result="$(epac_scrub_string '  My:Category  ' ':' 30 --trim --lower)"
+result="$(_epac_export_scrub_string '  My:Category  ' ':' 30 --trim --lower)"
 assert_eq "Combined options" "mycategory" "$result"
 
-result="$(epac_scrub_string 'Policy (Test) [v2]' '()[]' 0 --trim --lower --replace-spaces-with "-")"
+result="$(_epac_export_scrub_string 'Policy (Test) [v2]' '()[]' 0 --trim --lower --replace-spaces-with "-")"
 assert_eq "Complex scrub" "policy-test-v2" "$result"
 
 # ═══════════════════════════════════════════════════════════════════════════════

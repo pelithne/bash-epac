@@ -89,6 +89,8 @@ epac_out_documentation_for_policy_sets() {
         [[ "$add_toc" == "true" ]] && { _md_add "[[_TOC_]]"; _md_add ""; }
     fi
     _md_add "Auto-generated Policy effect documentation for PolicySets grouped by Effect and sorted by Policy category and Policy display name."
+    _md_add ""
+    _md_add "${leading_hashtag} Policy Set (Initiative) List"
 
     # Policy Set List section — single jq pass
     local _ps_list_md

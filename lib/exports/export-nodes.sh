@@ -10,8 +10,8 @@ readonly _EPAC_EXPORT_NODES_LOADED=1
 
 # ─── Get-ScrubbedString equivalent ──────────────────────────────────────────
 # Cleans a string by removing invalid chars, replacing spaces, truncating.
-# Usage: epac_scrub_string <string> <invalid_chars_regex> [max_length] [--replace-spaces-with <char>] [--lower] [--trim]
-epac_scrub_string() {
+# Usage: _epac_export_scrub_string <string> <invalid_chars_regex> [max_length] [--replace-spaces-with <char>] [--lower] [--trim]
+_epac_export_scrub_string() {
     local str="$1"
     local invalid_chars="$2"   # literal characters to remove
     local max_length="${3:-0}"
@@ -83,7 +83,7 @@ epac_get_definitions_full_path() {
     local sub_folder="Unknown"
     if [[ -n "$raw_sub_folder" ]]; then
         local scrubbed
-        scrubbed="$(epac_scrub_string "$raw_sub_folder" "$invalid_chars" "$max_sub_folder" --trim)"
+        scrubbed="$(_epac_export_scrub_string "$raw_sub_folder" "$invalid_chars" "$max_sub_folder" --trim)"
         if [[ -n "$scrubbed" ]]; then
             sub_folder="$scrubbed"
         fi
@@ -94,12 +94,12 @@ epac_get_definitions_full_path() {
     local guid_pattern='^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
     if [[ "$name" =~ $guid_pattern ]]; then
         local dn_scrubbed
-        dn_scrubbed="$(epac_scrub_string "$display_name" "$invalid_chars" "$max_filename" --replace-spaces-with "-" --lower --trim)"
+        dn_scrubbed="$(_epac_export_scrub_string "$display_name" "$invalid_chars" "$max_filename" --replace-spaces-with "-" --lower --trim)"
         if [[ -n "$dn_scrubbed" ]]; then
             filename="$dn_scrubbed"
         fi
     else
-        filename="$(epac_scrub_string "$name" "$invalid_chars" "$max_filename" --replace-spaces-with "-" --lower --trim)"
+        filename="$(_epac_export_scrub_string "$name" "$invalid_chars" "$max_filename" --replace-spaces-with "-" --lower --trim)"
     fi
 
     if [[ -n "$raw_sub_folder" ]]; then
