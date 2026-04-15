@@ -39,20 +39,33 @@ epac_deep_equal() {
     if [[ -z "$a" || "$a" == "null" ]] && [[ -z "$b" || "$b" == "null" ]]; then
         return 0
     fi
-    if [[ -z "$a" || "$a" == "null" || -z "$b" || "$b" == "null" ]]; then
+
+    # Normalize null/empty: treat null as equivalent to [], {}, ""
+    local a_empty b_empty
+    a_empty="$(_is_null_or_empty_val "$a")"
+    b_empty="$(_is_null_or_empty_val "$b")"
+    if [[ "$a_empty" == "true" && "$b_empty" == "true" ]]; then
+        return 0
+    fi
+    if [[ "$a_empty" == "true" || "$b_empty" == "true" ]]; then
         return 1
     fi
 
-    # Single jq call: normalize both values (sort keys recursively, strip null-valued keys) and compare
-    # Stripping null-valued keys is needed because Azure Resource Graph adds explicit null fields
-    # (e.g. "schema": null, "allowedValues": null) that aren't present in definition files.
+    # Single jq call: normalize both values (sort keys recursively, sort arrays, strip null-valued keys) and compare
+    # Sorting arrays allows order-independent comparison (Azure may return arrays in different order).
+    # Scalar-to-array coercion: wrap scalars in arrays if the other side is an array.
     local eq
     eq="$(jq -n --argjson a "$a" --argjson b "$b" '
         def normalize:
             if type == "object" then with_entries(select(.value != null)) | to_entries | sort_by(.key) | map(.value |= normalize) | from_entries
-            elif type == "array" then map(normalize)
+            elif type == "array" then [.[] | normalize] | sort_by(tostring)
             else . end;
-        ($a | normalize) == ($b | normalize)
+        def coerce: if type != "array" then [.] else . end;
+        (if ($a | type) != ($b | type) then
+            (($a | coerce | normalize) == ($b | coerce | normalize))
+        else
+            (($a | normalize) == ($b | normalize))
+        end)
     ' 2>/dev/null)" || { return 1; }
     [[ "$eq" == "true" ]] && return 0
     return 1

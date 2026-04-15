@@ -217,12 +217,15 @@ assert_json_eq "pac array: null preserves existing" "$result" 'length' "1"
 # ═══════════════════════════════════════════════════════════════════════════════
 echo "=== Definition entry tests ==="
 
+# Set up EPAC_TMP_DIR with policy definition files (function reads from files)
+export EPAC_TMP_DIR="$(mktemp -d)"
+echo "$ALL_POLICY_DEFS" > "$EPAC_TMP_DIR/all_policy_defs.json"
+echo "$ALL_POLICY_SET_DEFS" > "$EPAC_TMP_DIR/all_policy_set_defs.json"
+
 # Valid policy by name
 result="$(_epac_build_assignment_definition_entry \
     '{"policyName":"test-policy"}' \
     '["'"$ROOT_SCOPE"'"]' \
-    "$ALL_POLICY_DEFS" \
-    "$ALL_POLICY_SET_DEFS" \
     "TestNode")"
 assert_json_eq "entry: valid policy name" "$result" '.valid' "true"
 assert_json_eq "entry: is not policy set" "$result" '.isPolicySet' "false"
@@ -232,8 +235,6 @@ assert_json_eq "entry: resolved id" "$result" '.id' "$POLICY_ID"
 result="$(_epac_build_assignment_definition_entry \
     "{\"policyId\":\"$POLICY_ID\"}" \
     '["'"$ROOT_SCOPE"'"]' \
-    "$ALL_POLICY_DEFS" \
-    "$ALL_POLICY_SET_DEFS" \
     "TestNode")"
 assert_json_eq "entry: valid policy id" "$result" '.valid' "true"
 assert_json_eq "entry: policy id resolves" "$result" '.id' "$POLICY_ID"
@@ -242,8 +243,6 @@ assert_json_eq "entry: policy id resolves" "$result" '.id' "$POLICY_ID"
 result="$(_epac_build_assignment_definition_entry \
     '{"policySetName":"test-policy-set"}' \
     '["'"$ROOT_SCOPE"'"]' \
-    "$ALL_POLICY_DEFS" \
-    "$ALL_POLICY_SET_DEFS" \
     "TestNode")"
 assert_json_eq "entry: valid policy set" "$result" '.valid' "true"
 assert_json_eq "entry: is policy set" "$result" '.isPolicySet' "true"
@@ -253,8 +252,6 @@ assert_json_eq "entry: set id" "$result" '.id' "$POLICY_SET_ID"
 result="$(_epac_build_assignment_definition_entry \
     '{"initiativeName":"test-policy-set"}' \
     '["'"$ROOT_SCOPE"'"]' \
-    "$ALL_POLICY_DEFS" \
-    "$ALL_POLICY_SET_DEFS" \
     "TestNode")"
 assert_json_eq "entry: initiative alias" "$result" '.valid' "true"
 assert_json_eq "entry: initiative isPolicySet" "$result" '.isPolicySet' "true"
@@ -263,8 +260,6 @@ assert_json_eq "entry: initiative isPolicySet" "$result" '.isPolicySet' "true"
 result="$(_epac_build_assignment_definition_entry \
     '{}' \
     '["'"$ROOT_SCOPE"'"]' \
-    "$ALL_POLICY_DEFS" \
-    "$ALL_POLICY_SET_DEFS" \
     "TestNode")"
 assert_json_eq "entry: no identifier invalid" "$result" '.valid' "false"
 
@@ -272,8 +267,6 @@ assert_json_eq "entry: no identifier invalid" "$result" '.valid' "false"
 result="$(_epac_build_assignment_definition_entry \
     '{"policyName":"test-policy","policySetName":"test-policy-set"}' \
     '["'"$ROOT_SCOPE"'"]' \
-    "$ALL_POLICY_DEFS" \
-    "$ALL_POLICY_SET_DEFS" \
     "TestNode")"
 assert_json_eq "entry: multiple identifiers invalid" "$result" '.valid' "false"
 
@@ -281,8 +274,6 @@ assert_json_eq "entry: multiple identifiers invalid" "$result" '.valid' "false"
 result="$(_epac_build_assignment_definition_entry \
     '{"policyName":"nonexistent"}' \
     '["'"$ROOT_SCOPE"'"]' \
-    "$ALL_POLICY_DEFS" \
-    "$ALL_POLICY_SET_DEFS" \
     "TestNode")"
 assert_json_eq "entry: nonexistent invalid" "$result" '.valid' "false"
 
@@ -290,10 +281,10 @@ assert_json_eq "entry: nonexistent invalid" "$result" '.valid' "false"
 result="$(_epac_build_assignment_definition_entry \
     '{"policyName":"test-policy","append":true}' \
     '["'"$ROOT_SCOPE"'"]' \
-    "$ALL_POLICY_DEFS" \
-    "$ALL_POLICY_SET_DEFS" \
     "TestNode")"
 assert_json_eq "entry: append flag" "$result" '.append' "true"
+
+# Keep EPAC_TMP_DIR for plan tests below (will be cleaned up by trap)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo "=== Parameter object tests ==="
@@ -478,13 +469,33 @@ assert_json_eq "identity xor add: replaced" "$result" '.replaced' "true"
 assert_json_eq "identity xor add: has addedIdentity" "$result" '.changedIdentityStrings | index("addedIdentity") != null' "true"
 
 # ═══════════════════════════════════════════════════════════════════════════════
+echo "=== Assignment plan: setup temp files ==="
+
+# Write all temp files needed by the refactored epac_build_assignment_plan
+echo "$SCOPE_TABLE" | jq 'with_entries(.key |= ascii_downcase)' > "$EPAC_TMP_DIR/scope_table_lower.json"
+echo "$EMPTY_ROLE_IDS" > "$EPAC_TMP_DIR/policy_role_ids.json"
+echo "$EMPTY_DEPLOYED" > "$EPAC_TMP_DIR/deployed_assignments.json"
+# Pre-extract compact lookup files (matches build-deployment-plans.sh logic)
+jq -n --argjson cd "$COMBINED_DETAILS" '$cd | {
+  policies: (.policies | map_values({parameters: (.parameters // {})})),
+  policySets: (.policySets | map_values({parameters: (.parameters // {})}))
+}' > "$EPAC_TMP_DIR/policy_params.json"
+echo "$ALL_POLICY_DEFS" | jq 'map_values(null)' > "$EPAC_TMP_DIR/policy_def_index.json"
+echo "$ALL_POLICY_SET_DEFS" | jq 'map_values(null)' > "$EPAC_TMP_DIR/policy_set_def_index.json"
+echo "$COMBINED_DETAILS" > "$EPAC_TMP_DIR/combined_policy_details.json"
+
+# Helper to update deployed assignments in the temp file
+_test_set_deployed() {
+    echo "$1" > "$EPAC_TMP_DIR/deployed_assignments.json"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
 echo "=== Assignment plan: empty folder ==="
 
 result="$(epac_build_assignment_plan \
-    "/nonexistent" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "/nonexistent" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 assert_json_eq "empty folder: no new" "$result" '.assignments.new | length' "0"
 assert_json_eq "empty folder: no changes" "$result" '.assignments.numberOfChanges' "0"
 assert_json_eq "empty folder: no role changes" "$result" '.roleAssignments.numberOfChanges' "0"
@@ -508,11 +519,11 @@ write_assignment_file "$SIMPLE_DIR" "assign.jsonc" "$(jq -n --arg sub "$SUB_SCOP
     }
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
 result="$(epac_build_assignment_plan \
-    "$SIMPLE_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$SIMPLE_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 assert_json_eq "simple new: 1 new assignment" "$result" '.assignments.new | length' "1"
 assert_json_eq "simple new: numberOfChanges=1" "$result" '.assignments.numberOfChanges' "1"
@@ -573,11 +584,11 @@ DEPLOYED_UNCH="$(jq -n \
         readOnly: {}
     }')"
 
+_test_set_deployed "$DEPLOYED_UNCH"
 result="$(epac_build_assignment_plan \
-    "$UNCHANGED_DIR" "$PAC_ENV" "$DEPLOYED_UNCH" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$UNCHANGED_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 assert_json_eq "unchanged: numberUnchanged=1" "$result" '.assignments.numberUnchanged' "1"
 assert_json_eq "unchanged: numberOfChanges=0" "$result" '.assignments.numberOfChanges' "0"
@@ -606,11 +617,11 @@ DEPLOYED_DEL="$(jq -n --arg id "$DEL_ID" --arg sub "$SUB_SCOPE" '{
     readOnly: {}
 }')"
 
+_test_set_deployed "$DEPLOYED_DEL"
 result="$(epac_build_assignment_plan \
-    "$DELETE_DIR" "$PAC_ENV" "$DEPLOYED_DEL" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$DELETE_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 assert_json_eq "delete: 1 deletion" "$result" '.assignments.delete | length' "1"
 assert_json_eq "delete: has correct id" "$result" ".assignments.delete[\"${DEL_ID}\"] | type" "object"
@@ -661,11 +672,11 @@ DEPLOYED_UPD="$(jq -n \
         readOnly: {}
     }')"
 
+_test_set_deployed "$DEPLOYED_UPD"
 result="$(epac_build_assignment_plan \
-    "$UPDATE_DIR" "$PAC_ENV" "$DEPLOYED_UPD" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$UPDATE_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 assert_json_eq "update: 1 update" "$result" '.assignments.update | length' "1"
 assert_json_eq "update: numberOfChanges=1" "$result" '.assignments.numberOfChanges' "1"
@@ -720,11 +731,11 @@ DEPLOYED_REPL="$(jq -n \
 # Mark the policy as replaced
 REPLACE_DEFS="$(jq -n --arg id "$POLICY_ID" '{($id): true}')"
 
+_test_set_deployed "$DEPLOYED_REPL"
 result="$(epac_build_assignment_plan \
-    "$REPL_DIR" "$PAC_ENV" "$DEPLOYED_REPL" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$REPLACE_DEFS" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$REPL_DIR" "$PAC_ENV" \
+    "$REPLACE_DEFS" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 assert_json_eq "replace: 1 replacement" "$result" '.assignments.replace | length' "1"
 assert_json_eq "replace: numberOfChanges=1" "$result" '.assignments.numberOfChanges' "1"
@@ -769,11 +780,11 @@ write_assignment_file "$TREE_DIR" "tree.jsonc" "$(jq -n --arg sub "$SUB_SCOPE" -
     ]
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
 result="$(epac_build_assignment_plan \
-    "$TREE_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$TREE_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 assert_json_eq "tree: 2 new assignments" "$result" '.assignments.new | length' "2"
 
@@ -802,11 +813,11 @@ write_assignment_file "$EM_DIR" "assign.jsonc" "$(jq -n --arg sub "$SUB_SCOPE" -
     }
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
 result="$(epac_build_assignment_plan \
-    "$EM_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$EM_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 assert_json_eq "enforcement mode: DoNotEnforce" "$result" '.assignments.new | to_entries[0].value.enforcementMode' "DoNotEnforce"
 
@@ -820,11 +831,11 @@ write_assignment_file "$EM_BAD_DIR" "assign.jsonc" "$(jq -n --arg sub "$SUB_SCOP
     scope: {"epac-dev": $sub}
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
 result="$(epac_build_assignment_plan \
-    "$EM_BAD_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$EM_BAD_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 assert_json_eq "enforcement mode invalid: 0 new" "$result" '.assignments.new | length' "0"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -843,11 +854,11 @@ write_assignment_file "$META_DIR" "assign.jsonc" "$(jq -n --arg sub "$SUB_SCOPE"
     }]
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
 result="$(epac_build_assignment_plan \
-    "$META_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$META_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 # Check metadata merge: child overrides parent's version, adds extra, parent's category preserved
 FIRST_KEY="$(echo "$result" | jq -r '.assignments.new | keys[0]')"
@@ -884,11 +895,14 @@ write_assignment_file "$DINE_DIR" "assign.jsonc" "$(jq -n --arg sub "$SUB_SCOPE"
     scope: {"epac-dev": $sub}
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
+echo "$DINE_ALL_DEFS" > "$EPAC_TMP_DIR/all_policy_defs.json"
+echo "$DINE_ALL_DEFS" | jq 'map_values(null)' > "$EPAC_TMP_DIR/policy_def_index.json"
+echo "$DINE_ROLE_IDS" > "$EPAC_TMP_DIR/policy_role_ids.json"
 result="$(epac_build_assignment_plan \
-    "$DINE_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$DINE_ALL_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$DINE_ROLE_IDS" "$DINE_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$DINE_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$DINE_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 DINE_ASSIGN_ID="${SUB_SCOPE}/providers/Microsoft.Authorization/policyAssignments/dine-assign"
 assert_json_eq "dine: 1 new assignment" "$result" '.assignments.new | length' "1"
@@ -896,6 +910,11 @@ assert_json_eq "dine: identity required" "$result" ".assignments.new[\"${DINE_AS
 assert_json_eq "dine: SystemAssigned" "$result" ".assignments.new[\"${DINE_ASSIGN_ID}\"].identity.type" "SystemAssigned"
 assert_json_eq "dine: role assignments added" "$result" '.roleAssignments.added | length' "1"
 assert_json_eq "dine: role scope" "$result" ".roleAssignments.added[0].scope" "$SUB_SCOPE"
+
+# Restore default policy defs and role IDs after DINE test
+echo "$ALL_POLICY_DEFS" > "$EPAC_TMP_DIR/all_policy_defs.json"
+echo "$ALL_POLICY_DEFS" | jq 'map_values(null)' > "$EPAC_TMP_DIR/policy_def_index.json"
+echo "$EMPTY_ROLE_IDS" > "$EPAC_TMP_DIR/policy_role_ids.json"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo "=== Multiple scopes ==="
@@ -913,14 +932,18 @@ write_assignment_file "$MSCOPE_DIR" "assign.jsonc" "$(jq -n --arg pname "test-po
     scope: {"epac-dev": "/subscriptions/00000000-0000-0000-0000-000000000001"}
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
+echo "$MULTI_SCOPE_TABLE" | jq 'with_entries(.key |= ascii_downcase)' > "$EPAC_TMP_DIR/scope_table_lower.json"
 result="$(epac_build_assignment_plan \
-    "$MSCOPE_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$MULTI_SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$MSCOPE_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 # Single scope assigned (scope in file maps to one subscription)
 assert_json_eq "multi scope: 1 new" "$result" '.assignments.new | length' "1"
+
+# Restore default scope table after multi-scope test
+echo "$SCOPE_TABLE" | jq 'with_entries(.key |= ascii_downcase)' > "$EPAC_TMP_DIR/scope_table_lower.json"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo "=== Node name concatenation ==="
@@ -942,11 +965,11 @@ write_assignment_file "$DEEP_DIR" "assign.jsonc" "$(jq -n --arg sub "$SUB_SCOPE"
     }]
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
 result="$(epac_build_assignment_plan \
-    "$DEEP_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$DEEP_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 DEEP_ID="${SUB_SCOPE}/providers/Microsoft.Authorization/policyAssignments/L1-L2-L3"
 assert_json_eq "deep tree: concatenated name" "$result" ".assignments.new[\"${DEEP_ID}\"].name" "L1-L2-L3"
@@ -964,11 +987,11 @@ write_assignment_file "$BOTH_DIR" "assign.jsonc" "$(jq -n --arg sub "$SUB_SCOPE"
     scope: {"epac-dev": $sub}
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
 result="$(epac_build_assignment_plan \
-    "$BOTH_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$BOTH_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 assert_json_eq "both error: 0 new" "$result" '.assignments.new | length' "0"
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1001,11 +1024,11 @@ write_assignment_file "$STRUCT_DIR" "assign.jsonc" "$(jq -n --arg sub "$SUB_SCOP
     scope: {"epac-dev": $sub}
 }')"
 
+_test_set_deployed "$EMPTY_DEPLOYED"
 result="$(epac_build_assignment_plan \
-    "$STRUCT_DIR" "$PAC_ENV" "$EMPTY_DEPLOYED" \
-    "$ALL_POLICY_DEFS" "$ALL_POLICY_SET_DEFS" "$COMBINED_DETAILS" \
-    "$EMPTY_REPLACE" "$EMPTY_ROLE_IDS" "$EMPTY_ROLE_DEFS" \
-    "$SCOPE_TABLE" "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
+    "$STRUCT_DIR" "$PAC_ENV" \
+    "$EMPTY_REPLACE" "$EMPTY_ROLE_DEFS" \
+    "$EMPTY_ROLE_ASSIGN_BY_PRINCIPAL" 2>/dev/null)"
 
 assert_json_eq "structure: has assignments key" "$result" '.assignments | type' "object"
 assert_json_eq "structure: has new" "$result" '.assignments.new | type' "object"
