@@ -97,8 +97,7 @@ for dir in \
     StarterKit/Definitions-Microsoft-Release-Flow \
     StarterKit/HydrationKit \
     StarterKit/Pipelines/AzureDevOps \
-    StarterKit/Pipelines/GitHubActions \
-    StarterKit/Pipelines/GitLab; do
+    StarterKit/Pipelines/GitHubActions; do
     assert_dir_exists "dir: $dir" "${REPO_ROOT}/${dir}"
 done
 
@@ -108,9 +107,8 @@ echo "=== StarterKit bash template directories ==="
 # ═══════════════════════════════════════════════════════════════════════════════
 
 for dir in \
-    StarterKit/Pipelines/AzureDevOps/templates-bash \
-    StarterKit/Pipelines/GitHubActions/templates-bash \
-    StarterKit/Pipelines/GitLab/templates-bash; do
+    StarterKit/Pipelines/AzureDevOps/templates \
+    StarterKit/Pipelines/GitHubActions/templates; do
     assert_dir_exists "bash templates: $dir" "${REPO_ROOT}/${dir}"
 done
 

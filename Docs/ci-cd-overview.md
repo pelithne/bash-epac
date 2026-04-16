@@ -1,6 +1,6 @@
 # CI/CD Overview
 
-EPAC is written in Bash and any CI/CD tool with the ability to execute Bash scripts with Azure CLI can be used. The starter kits currently include pipeline definitions for Azure DevOps, GitHub Actions and GitLab. 
+EPAC is written in Bash and any CI/CD tool with the ability to execute Bash scripts with Azure CLI can be used. The starter kits currently include pipeline definitions for Azure DevOps and GitHub Actions.
 
 This repository contains starter pipelines and instructions for can be found here:
 

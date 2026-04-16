@@ -18,7 +18,6 @@ Options:
   --pipelines-folder <PATH>     Destination folder (auto-detected from pipeline type)
   --pipeline-type <TYPE>        AzureDevOps or GitHubActions (default: GitHubActions)
   --branching-flow <FLOW>       Release or GitHub (default: Release)
-  --script-type <TYPE>          Module or Scripts (default: Module)
   --suppress-confirm            Skip confirmation prompt
   --help                        Show this help message
 EOF
@@ -29,7 +28,6 @@ starter_kit_folder="./StarterKit"
 pipelines_folder=""
 pipeline_type="GitHubActions"
 branching_flow="Release"
-script_type="Module"
 suppress_confirm=false
 
 while [[ $# -gt 0 ]]; do
@@ -39,7 +37,6 @@ while [[ $# -gt 0 ]]; do
         --pipelines-folder) pipelines_folder="$2"; shift 2 ;;
         --pipeline-type) pipeline_type="$2"; shift 2 ;;
         --branching-flow) branching_flow="$2"; shift 2 ;;
-        --script-type) script_type="$2"; shift 2 ;;
         --suppress-confirm) suppress_confirm=true; shift ;;
         *) epac_log_error "Unknown option: $1"; exit 1 ;;
     esac
@@ -61,12 +58,6 @@ esac
 case "$branching_flow" in
     Release|GitHub) ;;
     *) epac_log_error "Invalid branching flow '$branching_flow'. Must be Release or GitHub."; exit 1 ;;
-esac
-
-# Validate script type
-case "$script_type" in
-    Module|Scripts) ;;
-    *) epac_log_error "Invalid script type '$script_type'. Must be Module or Scripts."; exit 1 ;;
 esac
 
 # Determine source and destination paths
@@ -99,19 +90,15 @@ case "$branching_flow" in
 esac
 starter_pipelines_path="${starter_pipelines_folder}/${branching_subfolder}"
 
-# Determine script type subfolder
-case "$script_type" in
-    Module)  templates_subfolder="templates-ps1-module" ;;
-    Scripts) templates_subfolder="templates-ps1-scripts" ;;
-esac
-starter_templates_path="${starter_pipelines_folder}/${templates_subfolder}"
+# Templates folder is the canonical 'templates/' inside the pipeline-type folder
+starter_templates_path="${starter_pipelines_folder}/templates"
 
 # Create destination folders
 mkdir -p "$templates_folder"
 
 # Display plan
 epac_write_status "Copying $pipeline_type_text ($branching_subfolder) from '${starter_pipelines_path}/*.yml' to $pipelines_folder" "info" 2
-epac_write_status "Copying $template_type_text ($script_type) from '${starter_templates_path}/*.yml' to $templates_folder" "info" 2
+epac_write_status "Copying $template_type_text from '${starter_templates_path}/*.yml' to $templates_folder" "info" 2
 
 # Confirm
 if [[ "$suppress_confirm" == "false" ]]; then

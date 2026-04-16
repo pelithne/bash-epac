@@ -338,7 +338,6 @@ if [[ -d "${repo_root}/StarterKit" ]]; then
         --starter-kit-folder "${repo_root}/StarterKit" \
         --pipeline-type "$pipeline_type" \
         --branching-flow "$branching_flow" \
-        --script-type Module \
         --suppress-confirm 2>/dev/null || echo "Pipeline template copy completed with warnings."
 else
     echo -e "\033[33mStarterKit folder not found. Attempting to download...\033[0m"
@@ -349,7 +348,6 @@ else
                 --starter-kit-folder "${repo_root}/StarterKit" \
                 --pipeline-type "$pipeline_type" \
                 --branching-flow "$branching_flow" \
-                --script-type Module \
                 --suppress-confirm 2>/dev/null || true
         fi
     else
