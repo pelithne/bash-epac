@@ -2,6 +2,55 @@
 
 Enterprise Azure Policy as Code (EPAC for short) is a collection of Bash scripts which can be used in CI/CD based systems or semi-automated deployments to manage Policies, Policy Sets, Policy Assignments, Policy Exemptions and Role Assignments. It also contains operational scripts to simplify operational tasks.
 
+## Documentation
+
+Start with the [Overview and Prerequisites](start-implementing.md) if you are new to EPAC. The full documentation is grouped into the following sections:
+
+### Getting Started
+- [Overview and Prerequisites](start-implementing.md) — what EPAC is, requirements, first steps
+- [Hydration Kit](start-hydration-kit.md) — bootstrap a new EPAC repo
+- [Manual Configuration](manual-configuration.md) — hand-crafted setup
+- [Extracting Policy Resources](start-extracting-policy-resources.md) — export existing policies into EPAC
+- [Forking the GitHub Repo](start-forking-github-repo.md)
+- [Advanced Configuration](advanced-configuration.md)
+- [Changes in v11.0.0](start-changes.md)
+- [Debugging EPAC](debugging.md)
+
+### Settings and Desired State
+- [Global Settings](settings-global-setting-file.md) — `global-settings.jsonc` reference
+- [Desired State Strategy](settings-desired-state.md) — controlling what EPAC takes ownership of
+- [Defender for Cloud Assignments](settings-dfc-assignments.md)
+- [Output Themes](settings-output-themes.md)
+
+### Azure Landing Zones
+- [ALZ Overview](integrating-with-alz-overview.md)
+- [ALZ Policy Integration](integrating-with-alz-library.md)
+
+### Define Policy Resources
+- [Policy Definitions](policy-definitions.md)
+- [Policy Set Definitions](policy-set-definitions.md)
+- [Policy Assignment Files](policy-assignments.md)
+- [CSV Assignment Parameters](policy-assignments-csv-parameters.md)
+- [Policy Exemptions](policy-exemptions.md)
+
+### CI/CD Integration
+- [CI/CD Overview](ci-cd-overview.md)
+- [App Registrations Setup](ci-cd-app-registrations.md)
+- [Branching Flows](ci-cd-branching-flows.md)
+- [Azure DevOps Pipelines](ci-cd-ado-pipelines.md)
+- [GitHub Actions](ci-cd-github-actions.md)
+
+### Operational Scripts
+- [Scripts Overview](operational-scripts.md)
+- [Documenting Policy](operational-scripts-documenting-policy.md)
+- [Reference](operational-scripts-reference.md)
+
+### Operator Guidance
+- [Remediation Enforcement](guidance-remediation.md)
+- [Exclusion Management](guidance-scope-exclusions.md)
+- [Exemption Updates](guidance-exemptions.md)
+- [Lighthouse Subscription Management](guidance-lighthouse.md)
+
 ## Latest Updates
 
 ### 📺 YouTube series for EPAC
@@ -46,7 +95,7 @@ For all EPAC changes and newest updates, please visit our [GitHub Releases Page]
 EPAC is designed for medium and large organizations with a larger number of Policies, Policy Sets and Assignments and/or complex deployment scenarios, such as, multiple tenants, multiple teams managing Policies.
 
 > [!TIP]
-> EPAC provides a mature [integration with Azure Landing Zones](integrating-with-alz.md). Utilizing [Azure Landing Zones](https://aka.ms/alz/aac) together with EPAC is highly recommended.
+> EPAC provides a mature [integration with Azure Landing Zones](integrating-with-alz-overview.md). Utilizing [Azure Landing Zones](https://aka.ms/alz/aac) together with EPAC is highly recommended.
 
 ### Smaller Organizations
 
