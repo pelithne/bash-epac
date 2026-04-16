@@ -395,14 +395,8 @@ bash "${REPO_ROOT}/scripts/operations/new-pipelines-from-starter-kit.sh" \
     --branching-flow Invalid 2>&1 || rc=$?
 assert_eq "Invalid branching flow exits 1" "1" "$rc"
 
-# Test invalid script type
-rc=0
-bash "${REPO_ROOT}/scripts/operations/new-pipelines-from-starter-kit.sh" \
-    --script-type Invalid 2>&1 || rc=$?
-assert_eq "Invalid script type exits 1" "1" "$rc"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-echo "=== Pipelines: actual copy (GitHubActions/Release/Module) ==="
+# ════════════════════════════════════════════════════════════════════════════════
+echo "=== Pipelines: actual copy (GitHubActions/Release) ==="
 
 dest="${TEST_TMP}/gh-release"
 bash "${REPO_ROOT}/scripts/operations/new-pipelines-from-starter-kit.sh" \
@@ -410,7 +404,6 @@ bash "${REPO_ROOT}/scripts/operations/new-pipelines-from-starter-kit.sh" \
     --pipelines-folder "$dest" \
     --pipeline-type GitHubActions \
     --branching-flow Release \
-    --script-type Module \
     --suppress-confirm 2>&1
 
 # Check that workflow files were copied
@@ -436,7 +429,7 @@ else
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
-echo "=== Pipelines: actual copy (AzureDevOps/GitHub/Scripts) ==="
+echo "=== Pipelines: actual copy (AzureDevOps/GitHub) ==="
 
 dest2="${TEST_TMP}/ado-github"
 bash "${REPO_ROOT}/scripts/operations/new-pipelines-from-starter-kit.sh" \
@@ -444,7 +437,6 @@ bash "${REPO_ROOT}/scripts/operations/new-pipelines-from-starter-kit.sh" \
     --pipelines-folder "$dest2" \
     --pipeline-type AzureDevOps \
     --branching-flow GitHub \
-    --script-type Scripts \
     --suppress-confirm 2>&1
 
 # Verify pipeline files

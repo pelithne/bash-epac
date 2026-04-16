@@ -402,7 +402,7 @@ Folder where the generated pipelines will be placed.
 
 #### `--pipeline-type <type>`
 
-Type of pipeline to generate: `AzureDevOps`, `GitHubActions`, or `GitLab`.
+Type of pipeline to generate: `AzureDevOps` or `GitHubActions`.
 
 #### `--branching-flow <flow>`
 

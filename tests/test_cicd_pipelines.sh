@@ -79,32 +79,22 @@ assert_valid_yaml() {
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
-echo "=== Azure DevOps templates-bash existence ==="
+echo "=== Azure DevOps templates existence ==="
 # ═══════════════════════════════════════════════════════════════════════════════
 
-ado_bash="${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/templates-bash"
+ado_bash="${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/templates"
 for tmpl in plan.yml deploy-policy.yml deploy-roles.yml documentation.yml remediate.yml plan-exemptions-only.yml; do
     assert_file_exists "ADO bash template: $tmpl" "${ado_bash}/${tmpl}"
 done
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo ""
-echo "=== GitHub Actions templates-bash existence ==="
+echo "=== GitHub Actions templates existence ==="
 # ═══════════════════════════════════════════════════════════════════════════════
 
-gh_bash="${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/templates-bash"
+gh_bash="${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/templates"
 for tmpl in plan.yml deploy-policy.yml deploy-roles.yml remediate.yml plan-exemptions-only.yml; do
     assert_file_exists "GH bash template: $tmpl" "${gh_bash}/${tmpl}"
-done
-
-# ═══════════════════════════════════════════════════════════════════════════════
-echo ""
-echo "=== GitLab templates-bash existence ==="
-# ═══════════════════════════════════════════════════════════════════════════════
-
-gl_bash="${REPO_ROOT}/StarterKit/Pipelines/GitLab/templates-bash"
-for tmpl in plan.yml deploy-policy.yml deploy-roles.yml; do
-    assert_file_exists "GL bash template: $tmpl" "${gl_bash}/${tmpl}"
 done
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -112,20 +102,20 @@ echo ""
 echo "=== ALZ sync pipelines existence ==="
 # ═══════════════════════════════════════════════════════════════════════════════
 
-assert_file_exists "GH ALZ sync bash" "${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/alz-sync-bash.yaml"
-assert_file_exists "ADO ALZ sync bash" "${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/alz-sync-bash.yml"
+assert_file_exists "GH ALZ sync bash" "${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/alz-sync.yaml"
+assert_file_exists "ADO ALZ sync bash" "${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/alz-sync.yml"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo ""
 echo "=== YAML validity ==="
 # ═══════════════════════════════════════════════════════════════════════════════
 
-for f in "${ado_bash}"/*.yml "${gh_bash}"/*.yml "${gl_bash}"/*.yml; do
+for f in "${ado_bash}"/*.yml "${gh_bash}"/*.yml; do
     assert_valid_yaml "$(basename "$f") valid YAML" "$f"
 done
 
-assert_valid_yaml "GH ALZ sync YAML" "${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/alz-sync-bash.yaml"
-assert_valid_yaml "ADO ALZ sync YAML" "${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/alz-sync-bash.yml"
+assert_valid_yaml "GH ALZ sync YAML" "${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/alz-sync.yaml"
+assert_valid_yaml "ADO ALZ sync YAML" "${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/alz-sync.yml"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo ""
@@ -259,87 +249,19 @@ assert_contains "GH plan detect uses bash syntax" "$plan_content" "[[ -d"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo ""
-echo "=== GitLab templates use azure-cli image ==="
+echo "=== ALZ sync workflows reference bash scripts ==="
 # ═══════════════════════════════════════════════════════════════════════════════
 
-for f in "${gl_bash}"/*.yml; do
-    content="$(cat "$f")"
-    name="$(basename "$f")"
-    assert_contains "GL $name uses azure-cli image" "$content" "mcr.microsoft.com/azure-cli"
-    assert_not_contains "GL $name no powershell image" "$content" "mcr.microsoft.com/powershell"
-    assert_not_contains "GL $name no Install-Module" "$content" "Install-Module"
-    assert_not_contains "GL $name no pwsh" "$content" "pwsh"
-done
-
-# ═══════════════════════════════════════════════════════════════════════════════
-echo ""
-echo "=== GitLab templates reference correct bash scripts ==="
-# ═══════════════════════════════════════════════════════════════════════════════
-
-assert_contains "GL plan refs build-deployment-plans.sh" \
-    "$(cat "${gl_bash}/plan.yml")" "scripts/deploy/build-deployment-plans.sh"
-assert_contains "GL deploy-policy refs deploy-policy-plan.sh" \
-    "$(cat "${gl_bash}/deploy-policy.yml")" "scripts/deploy/deploy-policy-plan.sh"
-assert_contains "GL deploy-roles refs deploy-roles-plan.sh" \
-    "$(cat "${gl_bash}/deploy-roles.yml")" "scripts/deploy/deploy-roles-plan.sh"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-echo ""
-echo "=== GitLab templates have OIDC auth ==="
-# ═══════════════════════════════════════════════════════════════════════════════
-
-for f in "${gl_bash}"/*.yml; do
-    content="$(cat "$f")"
-    name="$(basename "$f")"
-    assert_contains "GL $name has OIDC token" "$content" "GITLAB_OIDC_TOKEN"
-    assert_contains "GL $name has id_tokens" "$content" "id_tokens"
-    assert_contains "GL $name has az login" "$content" "az login"
-done
-
-# ═══════════════════════════════════════════════════════════════════════════════
-echo ""
-echo "=== GitLab deploy templates have manual trigger and plan check ==="
-# ═══════════════════════════════════════════════════════════════════════════════
-
-for f in deploy-policy.yml deploy-roles.yml; do
-    content="$(cat "${gl_bash}/${f}")"
-    assert_contains "GL $f has manual trigger" "$content" "when:"
-    assert_contains "GL $f checks plan file" "$content" "File not found"
-    assert_contains "GL $f has dependencies" "$content" "dependencies"
-done
-
-# ═══════════════════════════════════════════════════════════════════════════════
-echo ""
-echo "=== ALZ sync bash workflows reference bash scripts ==="
-# ═══════════════════════════════════════════════════════════════════════════════
-
-gh_sync="$(cat "${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/alz-sync-bash.yaml")"
+gh_sync="$(cat "${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/alz-sync.yaml")"
 assert_contains "GH ALZ sync refs sync-alz-policy-from-library.sh" "$gh_sync" "scripts/caf/sync-alz-policy-from-library.sh"
 assert_not_contains "GH ALZ sync no Install-Module" "$gh_sync" "Install-Module"
 assert_contains "GH ALZ sync creates PR" "$gh_sync" "gh pr create"
 assert_contains "GH ALZ sync has workflow_dispatch" "$gh_sync" "workflow_dispatch"
 
-ado_sync="$(cat "${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/alz-sync-bash.yml")"
+ado_sync="$(cat "${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/alz-sync.yml")"
 assert_contains "ADO ALZ sync refs sync-alz-policy-from-library.sh" "$ado_sync" "scripts/caf/sync-alz-policy-from-library.sh"
 assert_not_contains "ADO ALZ sync no Install-Module" "$ado_sync" "Install-Module"
 assert_contains "ADO ALZ sync creates PR" "$ado_sync" "az repos pr create"
-
-# ═══════════════════════════════════════════════════════════════════════════════
-echo ""
-echo "=== Parity: bash templates match PS template count ==="
-# ═══════════════════════════════════════════════════════════════════════════════
-
-ado_ps_count="$(find "${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/templates-ps1-scripts" -name "*.yml" | wc -l)"
-ado_bash_count="$(find "${ado_bash}" -name "*.yml" | wc -l)"
-assert_eq "ADO bash templates = PS templates" "$ado_ps_count" "$ado_bash_count"
-
-gh_ps_count="$(find "${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/templates-ps1-scripts" -name "*.yml" | wc -l)"
-gh_bash_count="$(find "${gh_bash}" -name "*.yml" | wc -l)"
-assert_eq "GH bash templates = PS templates" "$gh_ps_count" "$gh_bash_count"
-
-gl_ps_count="$(find "${REPO_ROOT}/StarterKit/Pipelines/GitLab/templates-ps1-scripts" -name "*.yml" | wc -l)"
-gl_bash_count="$(find "${gl_bash}" -name "*.yml" | wc -l)"
-assert_eq "GL bash templates = PS templates" "$gl_ps_count" "$gl_bash_count"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo ""
@@ -361,9 +283,9 @@ echo ""
 echo "=== No PowerShell remnants in bash templates ==="
 # ═══════════════════════════════════════════════════════════════════════════════
 
-for f in "${ado_bash}"/*.yml "${gh_bash}"/*.yml "${gl_bash}"/*.yml \
-    "${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/alz-sync-bash.yaml" \
-    "${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/alz-sync-bash.yml"; do
+for f in "${ado_bash}"/*.yml "${gh_bash}"/*.yml \
+    "${REPO_ROOT}/StarterKit/Pipelines/GitHubActions/alz-sync.yaml" \
+    "${REPO_ROOT}/StarterKit/Pipelines/AzureDevOps/alz-sync.yml"; do
     content="$(cat "$f")"
     name="$(basename "$f")"
     assert_not_contains "$name no .ps1 references" "$content" ".ps1"
