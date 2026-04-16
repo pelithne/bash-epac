@@ -1,7 +1,5 @@
 # Getting Started with EPAC
 
-[![Watch the intro video](https://img.youtube.com/vi/GhYZChU85LA/maxresdefault.jpg)](https://www.youtube.com/watch?v=GhYZChU85LA)
-
 EPAC (Enterprise Azure Policy as Code) enables you to manage Azure Policy at scale using Infrastructure as Code principles. This guide will help you understand core concepts and choose the right implementation path for your organization.
 
 > [!IMPORTANT]

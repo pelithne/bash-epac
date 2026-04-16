@@ -1,14 +1,5 @@
 # CI/CD Overview
 
-<div style="margin: 30px 0; position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; height: auto;">
-  <iframe src="https://www.youtube.com/embed/9JNnHEaQJIs" 
-          style="position: absolute; top:0; left:0; width:100%; height:100%;" 
-          frameborder="0" 
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-          allowfullscreen>
-  </iframe>
-</div>
-
 EPAC is written in Bash and any CI/CD tool with the ability to execute Bash scripts with Azure CLI can be used. The starter kits currently include pipeline definitions for Azure DevOps, GitHub Actions and GitLab. 
 
 This repository contains starter pipelines and instructions for can be found here:
