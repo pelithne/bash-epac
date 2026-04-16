@@ -129,53 +129,6 @@ epac_scrub_string() {
     echo "$result"
 }
 
-# ─── Definitions full path ───────────────────────────────────────────────────
-# Equivalent of Get-DefinitionsFullPath.ps1
-
-epac_definitions_full_path() {
-    local folder="$1"
-    local raw_subfolder="${2:-}"
-    local file_suffix="${3:-}"
-    local name="$4"
-    local display_name="${5:-}"
-    local invalid_chars="${6:-}"
-    local max_length_subfolder="${7:-0}"
-    local max_length_filename="${8:-0}"
-    local file_extension="${9:-json}"
-
-    local subfolder="Unknown"
-    if [[ -n "$raw_subfolder" ]]; then
-        local sub
-        sub="$(epac_scrub_string "$raw_subfolder" -i "$invalid_chars" -m "$max_length_subfolder" -t -1)"
-        if [[ -n "$sub" ]]; then
-            subfolder="$sub"
-        fi
-    fi
-
-    local filename="$name"
-    if epac_is_guid "$name"; then
-        # Avoid GUID filenames — use display name instead
-        if [[ -n "$display_name" ]]; then
-            local temp
-            temp="$(epac_scrub_string "$display_name" -i "$invalid_chars" -r "" -s -S "-" -m "$max_length_filename" -t -l -1)"
-            if [[ -n "$temp" ]]; then
-                filename="$temp"
-            fi
-        fi
-    else
-        filename="$(epac_scrub_string "$name" -i "$invalid_chars" -r "" -s -S "-" -m "$max_length_filename" -t -l -1)"
-    fi
-
-    local full_path
-    if [[ -n "$raw_subfolder" ]]; then
-        full_path="${folder}/${subfolder}/${filename}${file_suffix}.${file_extension}"
-    else
-        full_path="${folder}/${filename}${file_suffix}.${file_extension}"
-    fi
-
-    echo "$full_path"
-}
-
 # ─── Array chunking ──────────────────────────────────────────────────────────
 # Equivalent of Split-ArrayIntoChunks.ps1
 # Input: newline-separated items on stdin or as arguments
@@ -343,21 +296,6 @@ epac_get_parameter_name() {
     fi
 
     echo "$result"
-}
-
-# ─── File path utilities ─────────────────────────────────────────────────────
-
-# Get relative path from base to target
-epac_relative_path() {
-    local base="$1"
-    local target="$2"
-    python3 -c "import os; print(os.path.relpath('$target', '$base'))"
-}
-
-# Ensure directory exists
-epac_ensure_dir() {
-    local dir="$1"
-    [[ -d "$dir" ]] || mkdir -p "$dir"
 }
 
 # ─── Associative array helpers ────────────────────────────────────────────────

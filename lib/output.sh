@@ -117,10 +117,6 @@ _epac_default_theme() {
 THEME_JSON
 }
 
-epac_reset_theme() {
-    _EPAC_THEME=""
-}
-
 epac_get_theme() {
     if [[ -n "$_EPAC_THEME" ]]; then
         echo "$_EPAC_THEME"
@@ -293,70 +289,6 @@ epac_write_status() {
     epac_info_stream_append "$line"
 }
 
-# ─── Write-ModernCountSummary ────────────────────────────────────────────────
-
-epac_write_count_summary() {
-    local type_name="$1"
-    local unchanged="${2:-0}"
-    local total_changes="${3:-0}"
-    # Remaining args are key=value pairs for changes
-    shift 3
-
-    local -A changes=()
-    local orphaned=-1
-    local expired=-1
-    local indent=2
-
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --orphaned=*) orphaned="${1#*=}"; shift ;;
-            --expired=*)  expired="${1#*=}"; shift ;;
-            --indent=*)   indent="${1#*=}"; shift ;;
-            *=*)
-                local key="${1%%=*}"
-                local val="${1#*=}"
-                changes[$key]="$val"
-                shift
-                ;;
-            *) shift ;;
-        esac
-    done
-
-    epac_write_section "${type_name} Summary" 0
-
-    if [[ $unchanged -gt 0 ]]; then
-        epac_write_status "${unchanged} resources unchanged" "info" "$indent"
-    fi
-
-    if [[ $orphaned -ge 0 && $orphaned -gt 0 ]]; then
-        epac_write_status "${orphaned} orphaned resources" "warning" "$indent"
-    fi
-
-    if [[ $expired -ge 0 && $expired -gt 0 ]]; then
-        epac_write_status "${expired} expired resources" "warning" "$indent"
-    fi
-
-    if [[ $total_changes -eq 0 ]]; then
-        epac_write_status "No changes required" "info" "$indent"
-    else
-        epac_write_status "${total_changes} total changes:" "info" "$indent"
-
-        local sub_indent=$((indent + 2))
-        [[ -n "${changes[new]:-}" && "${changes[new]}" -gt 0 ]] && \
-            epac_write_status "${changes[new]} new" "success" "$sub_indent"
-        [[ -n "${changes[update]:-}" && "${changes[update]}" -gt 0 ]] && \
-            epac_write_status "${changes[update]} updates" "update" "$sub_indent"
-        [[ -n "${changes[replace]:-}" && "${changes[replace]}" -gt 0 ]] && \
-            epac_write_status "${changes[replace]} replacements" "warning" "$sub_indent"
-        [[ -n "${changes[delete]:-}" && "${changes[delete]}" -gt 0 ]] && \
-            epac_write_status "${changes[delete]} deletions" "error" "$sub_indent"
-        [[ -n "${changes[add]:-}" && "${changes[add]}" -gt 0 ]] && \
-            epac_write_status "${changes[add]} additions" "success" "$sub_indent"
-        [[ -n "${changes[remove]:-}" && "${changes[remove]}" -gt 0 ]] && \
-            epac_write_status "${changes[remove]} removals" "error" "$sub_indent"
-    fi
-}
-
 # ─── Write-ModernProgress ────────────────────────────────────────────────────
 
 epac_write_progress() {
@@ -388,32 +320,3 @@ epac_write_progress() {
     epac_info_stream_append "$line"
 }
 
-# ─── Write-DetailedDiff ──────────────────────────────────────────────────────
-# Shows terraform-style diff of two JSON values
-
-epac_write_diff() {
-    local label="$1"
-    local old_val="$2"
-    local new_val="$3"
-    local indent="${4:-2}"
-
-    local prefix=""
-    for (( i=0; i<indent; i++ )); do
-        prefix+=" "
-    done
-
-    epac_colored "${prefix}~ ${label}:" "Yellow"
-
-    # Show diff using jq
-    local old_pretty new_pretty
-    old_pretty="$(echo "$old_val" | jq '.' 2>/dev/null || echo "$old_val")"
-    new_pretty="$(echo "$new_val" | jq '.' 2>/dev/null || echo "$new_val")"
-
-    while IFS= read -r line; do
-        epac_colored "${prefix}  - ${line}" "Red"
-    done <<< "$old_pretty"
-
-    while IFS= read -r line; do
-        epac_colored "${prefix}  + ${line}" "Green"
-    done <<< "$new_pretty"
-}

@@ -259,15 +259,3 @@ hydration_test_caf3() {
 
     return "$errors"
 }
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Get child management group names
-# ══════════════════════════════════════════════════════════════════════════════
-
-# Get list of child MG names for a given parent
-hydration_get_mg_children() {
-    local parent_name="$1"
-    az rest --method GET \
-        --url "https://management.azure.com/providers/Microsoft.Management/managementGroups/${parent_name}?api-version=2021-04-01&\$expand=children" \
-        2>/dev/null | jq -r '.properties.children[]?.name // empty'
-}

@@ -76,28 +76,6 @@ epac_read_json() {
     jq '.' "$filepath"
 }
 
-# ─── JSON output ──────────────────────────────────────────────────────────────
-
-# Write JSON to file (pretty-printed, sorted keys)
-epac_write_json() {
-    local filepath="$1"
-    local json="$2"
-    local dir
-    dir="$(dirname "$filepath")"
-    [[ -d "$dir" ]] || mkdir -p "$dir"
-    echo "$json" | jq --sort-keys '.' > "$filepath"
-}
-
-# Write JSON to file (compact)
-epac_write_json_compact() {
-    local filepath="$1"
-    local json="$2"
-    local dir
-    dir="$(dirname "$filepath")"
-    [[ -d "$dir" ]] || mkdir -p "$dir"
-    echo "$json" | jq -c '.' > "$filepath"
-}
-
 # ─── Deep clone ───────────────────────────────────────────────────────────────
 # In bash+jq, JSON data is always strings, so "deep clone" is just parse+emit.
 # This is the equivalent of Get-DeepCloneAsOrderedHashtable.
@@ -161,21 +139,6 @@ epac_json_length() {
     local path="${2:-.}"
     echo "$json" | jq -r "${path} | length" 2>/dev/null || echo "0"
 }
-
-# Get JSON array as newline-separated values
-epac_json_array_values() {
-    local json="$1"
-    local path="${2:-.}"
-    echo "$json" | jq -r "${path}[]" 2>/dev/null
-}
-
-# Get JSON object keys as newline-separated values
-epac_json_keys() {
-    local json="$1"
-    local path="${2:-.}"
-    echo "$json" | jq -r "${path} | keys[]" 2>/dev/null
-}
-
 # ─── JSON construction ───────────────────────────────────────────────────────
 
 # Create empty JSON object
@@ -276,21 +239,4 @@ epac_json_equal() {
     local result
     result="$(jq -n --argjson a "$a" --argjson b "$b" 'if $a == $b then "true" else "false" end' 2>/dev/null)"
     [[ "$result" == '"true"' ]]
-}
-
-# ─── Flatten JSON object to key=value list ────────────────────────────────────
-# Equivalent of Convert-HashtableToFlatPsObject.ps1
-# Output: newline-separated key=json_value pairs
-
-epac_json_flatten() {
-    local json="$1"
-    echo "$json" | jq -r 'to_entries[] | "\(.key)=\(.value | tostring)"'
-}
-
-# ─── Find JSON files by pattern ──────────────────────────────────────────────
-
-epac_find_json_files() {
-    local dir="$1"
-    local pattern="${2:-*.json}"
-    find "$dir" -type f \( -name "$pattern" -o -name "*.jsonc" \) 2>/dev/null | sort
 }

@@ -184,48 +184,11 @@ epac_die() {
 
 # ─── Assertions ───────────────────────────────────────────────────────────────
 
-epac_require_command() {
-    local cmd="$1"
-    if ! command -v "$cmd" &>/dev/null; then
-        epac_die "Required command '${cmd}' not found. Please install it first."
-    fi
-}
-
-epac_require_var() {
-    local varname="$1"
-    local description="${2:-Variable ${varname}}"
-    if [[ -z "${!varname:-}" ]]; then
-        epac_die "${description} is not set."
-    fi
-}
-
 epac_require_file() {
     local filepath="$1"
     local description="${2:-File}"
     if [[ ! -f "$filepath" ]]; then
         epac_die "${description} not found: ${filepath}"
-    fi
-}
-
-epac_require_dir() {
-    local dirpath="$1"
-    local description="${2:-Directory}"
-    if [[ ! -d "$dirpath" ]]; then
-        epac_die "${description} not found: ${dirpath}"
-    fi
-}
-
-# ─── Dependency check ────────────────────────────────────────────────────────
-
-epac_check_dependencies() {
-    local missing=()
-    for cmd in jq az curl; do
-        if ! command -v "$cmd" &>/dev/null; then
-            missing+=("$cmd")
-        fi
-    done
-    if [[ ${#missing[@]} -gt 0 ]]; then
-        epac_die "Missing required dependencies: ${missing[*]}"
     fi
 }
 
@@ -235,25 +198,9 @@ epac_info_stream_append() {
     EPAC_INFO_STREAM+="$*"$'\n'
 }
 
-epac_info_stream_get() {
-    echo -n "$EPAC_INFO_STREAM"
-}
-
-epac_info_stream_clear() {
-    EPAC_INFO_STREAM=""
-}
-
 # ─── Temp file management ────────────────────────────────────────────────────
 
 _EPAC_TEMP_FILES=()
-
-epac_mktemp() {
-    local suffix="${1:-tmp}"
-    local f
-    f="$(mktemp "${TMPDIR:-/tmp}/epac-${suffix}.XXXXXX")"
-    _EPAC_TEMP_FILES+=("$f")
-    echo "$f"
-}
 
 _epac_cleanup_temp_files() {
     for f in "${_EPAC_TEMP_FILES[@]}"; do
@@ -303,16 +250,4 @@ epac_compare_semver() {
         fi
     done
     echo 0
-}
-
-# ─── Source other libraries helper ────────────────────────────────────────────
-
-epac_source_lib() {
-    local lib_name="$1"
-    local lib_path="${EPAC_LIB_DIR}/${lib_name}.sh"
-    if [[ ! -f "$lib_path" ]]; then
-        epac_die "Library not found: ${lib_path}"
-    fi
-    # shellcheck source=/dev/null
-    source "$lib_path"
 }
