@@ -88,6 +88,74 @@ epac_write_status "Processing $total non-compliant records" "info" 2
 # Build scope table for subscription name lookup
 scope_table="$(epac_build_scope_table "$pac_env")"
 
+# ─── Apply post-query filters (only-managed, definition/set/assignment filters) ─
+# PS parity: Find-AzNonCompliantResources applies these filters client-side after
+# the graph query because they require correlation with deployed assignment state.
+if $only_managed || [[ -n "$policy_def_filter" || -n "$policy_set_def_filter" || -n "$policy_assignment_filter" ]]; then
+    epac_write_status "Applying managed/definition/assignment filters" "info" 2
+
+    # Build deployed assignments map when --only-managed is requested
+    managed_assignments='{}'
+    if $only_managed; then
+        _pr_dir="$(mktemp -d)"
+        trap 'rm -rf "$_pr_dir"' EXIT
+        epac_get_policy_resources "$pac_env" "$scope_table" "true" "true" "false" "$_pr_dir" >/dev/null
+        managed_assignments="$(jq '.managed // {}' "$_pr_dir/policyassignments.json")"
+    fi
+
+    # Convert CSV filter lists to JSON arrays (trim whitespace)
+    _csv_to_json_array() {
+        if [[ -z "$1" ]]; then echo '[]'; return; fi
+        echo "$1" | jq -R -s 'split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0))'
+    }
+    _pdf_json="$(_csv_to_json_array "$policy_def_filter")"
+    _psdf_json="$(_csv_to_json_array "$policy_set_def_filter")"
+    _paf_json="$(_csv_to_json_array "$policy_assignment_filter")"
+
+    raw_non_compliant="$(echo "$raw_non_compliant" | jq \
+        --argjson managed "$managed_assignments" \
+        --argjson onlyManaged "$only_managed" \
+        --argjson pdf "$_pdf_json" \
+        --argjson psdf "$_psdf_json" \
+        --argjson paf "$_paf_json" '
+        map(select(
+            (. as $e |
+             ($e.properties.policyAssignmentId) as $aid |
+             # Managed filter: assignment must be in the managed set AND pacOwner must
+             # not be otherPaC/unknownOwner (PS parity: Find-AzNonCompliantResources)
+             (if $onlyManaged then
+                ($managed | has($aid)) and
+                (($managed[$aid].pacOwner // "") as $po |
+                 ($po != "otherPaC" and $po != "unknownOwner"))
+              else true end)
+             and
+             # Name/id filters (OR semantics: entry kept if it matches ANY filter list)
+             (if ($pdf | length) == 0 and ($psdf | length) == 0 and ($paf | length) == 0 then true
+              else
+                (($pdf | length) > 0 and
+                    ((($e.properties.policyDefinitionName // "") as $n | $pdf | index($n)) != null or
+                     (($e.properties.policyDefinitionId // "") as $i | $pdf | index($i)) != null))
+                or
+                (($psdf | length) > 0 and
+                    ((($e.properties.policySetDefinitionName // "") as $n | $psdf | index($n)) != null or
+                     (($e.properties.policySetDefinitionId // "") as $i | $psdf | index($i)) != null))
+                or
+                (($paf | length) > 0 and
+                    ((($e.properties.policyAssignmentName // "") as $n | $paf | index($n)) != null or
+                     (($e.properties.policyAssignmentId // "") as $i | $paf | index($i)) != null))
+              end)
+            )
+        ))
+    ')"
+
+    total="$(echo "$raw_non_compliant" | jq 'length')"
+    epac_write_status "After filters: $total records" "info" 2
+    if [[ "$total" -eq 0 ]]; then
+        epac_write_status "No non-compliant resources match filters" "success" 2
+        exit 0
+    fi
+fi
+
 # Separator for multi-value cells
 separator=","
 if $windows_newline; then
@@ -232,10 +300,16 @@ _csv_esc() {
 }
 
 # Helper: write a jq-generated CSV array to file
+# Prepends UTF-8 BOM when $windows_newline is true (PS parity: utf8BOM encoding)
 _write_csv() {
     local csv_path="$1"
     local csv_data="$2"
-    echo "$csv_data" > "$csv_path"
+    if $windows_newline; then
+        # UTF-8 BOM: EF BB BF
+        printf '\xef\xbb\xbf%s\n' "$csv_data" > "$csv_path"
+    else
+        echo "$csv_data" > "$csv_path"
+    fi
     epac_write_status "Wrote $csv_path" "success" 4
 }
 
