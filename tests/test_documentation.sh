@@ -618,16 +618,17 @@ echo "=== epac_generate_policy_set_csv standalone ==="
 
 test_dir="$(mktemp -d)"
 
-sorted_keys="$(echo "$FLAT_POLICY_LIST" | jq -r '
-    [to_entries[] | {key: .key, cat: .value.category, dn: .value.displayName}]
-    | sort_by(.cat, .dn) | .[].key
-')"
+# The helper expects file paths for flat_policy_list and item_list (items describe
+# the policy set: shortName + itemId). Write them to temp files first.
+_tmp_flat="$(mktemp)"
+_tmp_items="$(mktemp)"
+echo "$FLAT_POLICY_LIST" > "$_tmp_flat"
+echo '[{"shortName":"MCSB","itemId":"/providers/Microsoft.Authorization/policySetDefinitions/mcsb-v2"}]' > "$_tmp_items"
 
 _epac_generate_policy_set_csv "$test_dir" "standalone-csv" \
-    "$FLAT_POLICY_LIST" '["env1"]' "$sorted_keys" "false" 2>/dev/null
+    "$_tmp_flat" "$_tmp_items" '["env1"]' "false" 2>/dev/null
 
 assert_file_exists "Standalone CSV created" "$test_dir/standalone-csv.csv"
-csv_content="$(cat "$test_dir/standalone-csv.csv")"
 # Should have 3 lines: header + 2 policies (Manual excluded)
 lc="$(line_count "$test_dir/standalone-csv.csv")"
 assert_eq "CSV has 3 lines (header + 2 data rows)" "3" "$lc"
@@ -640,7 +641,7 @@ echo "=== Compliance CSV standalone ==="
 test_dir="$(mktemp -d)"
 
 _epac_generate_compliance_csv "$test_dir" "comp-test" \
-    "$FLAT_POLICY_LIST" "$sorted_keys" "false" 2>/dev/null
+    "$_tmp_flat" "$_tmp_items" "false" 2>/dev/null
 
 assert_file_exists "Compliance CSV standalone" "$test_dir/comp-test-compliance.csv"
 comp_content="$(cat "$test_dir/comp-test-compliance.csv")"
@@ -648,7 +649,7 @@ assert_contains "Compliance has header" "$comp_content" "groupName"
 assert_contains "Compliance has Network-Security" "$comp_content" "Network-Security"
 assert_contains "Compliance has Logging-Auditing" "$comp_content" "Logging-Auditing"
 
-rm -rf "$test_dir"
+rm -rf "$test_dir" "$_tmp_flat" "$_tmp_items"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo ""

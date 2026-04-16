@@ -478,7 +478,13 @@ all_policy_sets="$(jq -n \
     --argjson ps "$policy_set" \
     '{"/providers/Microsoft.Authorization/policySetDefinitions/security-initiative": $ps}')"
 
-result="$(epac_convert_policy_resources_to_details "$all_policies" "$all_policy_sets" 2>/dev/null)"
+# Function reads defs from temp files (avoids Argument list too long for large inputs)
+_tmp_all_policies="$(mktemp)"
+_tmp_all_sets="$(mktemp)"
+echo "$all_policies" > "$_tmp_all_policies"
+echo "$all_policy_sets" > "$_tmp_all_sets"
+result="$(epac_convert_policy_resources_to_details "$_tmp_all_policies" "$_tmp_all_sets" 2>/dev/null)"
+rm -f "$_tmp_all_policies" "$_tmp_all_sets"
 assert_json_count "Resources: policies count" "$result" '.policies | keys' '2'
 assert_json_count "Resources: policySets count" "$result" '.policySets | keys' '1'
 
