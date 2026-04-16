@@ -18,6 +18,29 @@ source "${_EPAC_APLAN_DIR}/../transforms.sh"
 source "${_EPAC_APLAN_DIR}/../azure-resources.sh"
 
 ###############################################################################
+# Guard: ensure EPAC_TMP_DIR contract is met before consuming temp-file data.
+#
+# Functions in this module read large precomputed JSON blobs from
+# $EPAC_TMP_DIR/*.json (written by the orchestrating entry script, typically
+# scripts/deploy/build-deployment-plans.sh). If EPAC_TMP_DIR is unset or the
+# expected file is missing, we previously got a confusing
+#   cat: /all_policy_defs.json: No such file or directory
+# This helper makes the contract explicit with a clear diagnostic.
+#
+# Arguments:
+#   $1 - basename of the file expected under $EPAC_TMP_DIR (e.g. "all_policy_defs.json")
+# Exits: via epac_die on violation
+_epac_require_tmp_file() {
+    local fname="$1"
+    if [[ -z "${EPAC_TMP_DIR:-}" ]]; then
+        epac_die "EPAC_TMP_DIR is not set; caller must create a temp dir and populate ${fname} before invoking assignment-plan functions"
+    fi
+    if [[ ! -f "${EPAC_TMP_DIR}/${fname}" ]]; then
+        epac_die "Required temp file missing: \$EPAC_TMP_DIR/${fname} (EPAC_TMP_DIR=${EPAC_TMP_DIR})"
+    fi
+}
+
+###############################################################################
 # Helper: Add pac-selected value
 ###############################################################################
 # Extracts an environment-specific value from a node property.
@@ -133,6 +156,8 @@ _epac_build_assignment_definition_entry() {
     local node_name="$3"
 
     # Large data read from $EPAC_TMP_DIR
+    _epac_require_tmp_file "all_policy_defs.json"
+    _epac_require_tmp_file "all_policy_set_defs.json"
     local all_policy_definitions all_policy_set_definitions
     all_policy_definitions="$(cat "$EPAC_TMP_DIR/all_policy_defs.json")"
     all_policy_set_definitions="$(cat "$EPAC_TMP_DIR/all_policy_set_defs.json")"
@@ -544,6 +569,7 @@ _epac_merge_assignment_parameters_ex() {
     local effect_processed="$6"
 
     # Large data read from $EPAC_TMP_DIR
+    _epac_require_tmp_file "combined_policy_details.json"
     local combined_policy_details
     combined_policy_details="$(cat "$EPAC_TMP_DIR/combined_policy_details.json")"
 
@@ -766,6 +792,8 @@ _epac_build_assignment_definition_at_leaf() {
     local flat_policy_list="$4"
 
     # Large data read from $EPAC_TMP_DIR on demand
+    _epac_require_tmp_file "combined_policy_details.json"
+    _epac_require_tmp_file "policy_role_ids.json"
     local combined_policy_details policy_role_ids
     combined_policy_details="$(cat "$EPAC_TMP_DIR/combined_policy_details.json")"
     policy_role_ids="$(cat "$EPAC_TMP_DIR/policy_role_ids.json")"
@@ -1349,6 +1377,7 @@ _epac_build_assignment_definition_node() {
     scope_node="$(echo "$node_object" | jq '.scope // null')"
     not_scope_node="$(echo "$node_object" | jq '.notScope // null')"
     if [[ "$scope_node" != "null" || "$not_scope_node" != "null" ]]; then
+        _epac_require_tmp_file "scope_table_lower.json"
         local scope_table_lower
         scope_table_lower="$(cat "$EPAC_TMP_DIR/scope_table_lower.json")"
     fi
@@ -1502,6 +1531,16 @@ epac_build_assignment_plan() {
     local role_definitions="$4"
     local deployed_role_assignments_by_principal="${5}"
     local detailed_output="${6:-false}"
+
+    # Assert the EPAC_TMP_DIR contract: caller must have pre-populated all
+    # the large precomputed blobs this function slurps via jq. Fail early
+    # with a clear message rather than leaking raw cat/jq errors.
+    _epac_require_tmp_file "policy_params.json"
+    _epac_require_tmp_file "policy_def_index.json"
+    _epac_require_tmp_file "policy_set_def_index.json"
+    _epac_require_tmp_file "policy_role_ids.json"
+    _epac_require_tmp_file "scope_table_lower.json"
+    _epac_require_tmp_file "deployed_assignments.json"
 
     local _jq_script="${_EPAC_APLAN_DIR}/build-assignment-plan.jq"
 
