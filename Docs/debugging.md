@@ -47,7 +47,6 @@ build-deployment-plans.sh
     ├── epac_write_header (visual headers)
     ├── epac_write_section (section headers)
     ├── epac_write_status (status messages)
-    ├── epac_write_count_summary (change summaries)
     └── epac_submit_telemetry (telemetry, optional)
 ```
 
